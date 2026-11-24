@@ -274,6 +274,29 @@ func (r *DeviceService) Terminate(ctx context.Context, deviceID string, body Dev
 	return err
 }
 
+// Sets the device's own idle stop setting and returns the updated device.
+// `minutes` between 5 and 240 sets a custom timeout; `0` turns the idle timer off
+// for this device; `null` removes the device's own setting, so the platform
+// default applies again (a pay-as-you-go device that can be stopped stops after
+// the default; other devices have no timer). Other values return 422. While a
+// timer is on, the device is stopped automatically (state `stopped`, `stopReason`
+// `IDLE_TIMEOUT`) once it has had no client activity for longer than that: API
+// tool calls, open stream/adb/browser/frida/port connections and a held lease all
+// count as activity, reading device state does not. Setting a custom timeout
+// requires a device whose capabilities report stop=true, otherwise 409; `0` and
+// `null` are always allowed. The response's `idleTimeoutMinutes` is the effective
+// timeout.
+func (r *DeviceService) UpdateIdleTimeout(ctx context.Context, deviceID string, body DeviceUpdateIdleTimeoutParams, opts ...option.RequestOption) (res *DeviceUpdateIdleTimeoutResponse, err error) {
+	opts = slices.Concat(r.options, opts)
+	if deviceID == "" {
+		err = errors.New("missing required deviceId parameter")
+		return nil, err
+	}
+	path := fmt.Sprintf("devices/%s/idle-timeout", url.PathEscape(deviceID))
+	err = requestconfig.ExecuteNewRequest(ctx, http.MethodPut, path, body, &res, opts...)
+	return res, err
+}
+
 // Blocks until the device reaches the ready state, then returns the same payload
 // as Get device info. The call returns early with an error if the wait is
 // cancelled or times out.
@@ -993,6 +1016,136 @@ func (r *DeviceSummaryResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
+type DeviceUpdateIdleTimeoutResponse struct {
+	ID           string    `json:"id" api:"required"`
+	ActiveTaskID string    `json:"activeTaskId" api:"required"`
+	AssignedAt   time.Time `json:"assignedAt" api:"required" format:"date-time"`
+	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
+	Name         string    `json:"name" api:"required"`
+	// Operating system the device runs.
+	//
+	// Any of "android", "ios".
+	Platform     DeviceUpdateIdleTimeoutResponsePlatform `json:"platform" api:"required"`
+	State        string                                  `json:"state" api:"required"`
+	StateMessage string                                  `json:"stateMessage" api:"required"`
+	StreamURL    string                                  `json:"streamUrl" api:"required"`
+	TaskCount    int64                                   `json:"taskCount" api:"required"`
+	TerminatesAt time.Time                               `json:"terminatesAt" api:"required" format:"date-time"`
+	Type         string                                  `json:"type" api:"required"`
+	UpdatedAt    time.Time                               `json:"updatedAt" api:"required" format:"date-time"`
+	// A URL to the JSON Schema for this object.
+	Schema          string `json:"$schema" format:"uri"`
+	BillingStrategy string `json:"billingStrategy"`
+	CreatedBy       string `json:"createdBy"`
+	// The platform default idle timeout this device uses when its own setting is
+	// cleared (PUT idle-timeout with minutes null). Omitted when no default applies to
+	// this device.
+	IdleTimeoutDefaultMinutes int64 `json:"idleTimeoutDefaultMinutes"`
+	// The effective idle timeout: minutes without client activity after which the
+	// device is stopped automatically (state stopped, stopReason IDLE_TIMEOUT). It is
+	// the device's own setting when one exists, otherwise the platform default for
+	// pay-as-you-go (minute-billed) devices that can be stopped. Omitted while no idle
+	// timer applies (explicitly turned off, or no default for this device). Change it
+	// with PUT /devices/{deviceId}/idle-timeout.
+	IdleTimeoutMinutes int64 `json:"idleTimeoutMinutes"`
+	// Where idleTimeoutMinutes comes from: device = the device's own setting (also
+	// when it is off), default = the platform default. Omitted when no idle timer can
+	// apply.
+	//
+	// Any of "device", "default".
+	IdleTimeoutSource DeviceUpdateIdleTimeoutResponseIdleTimeoutSource `json:"idleTimeoutSource"`
+	// When the device last had client activity (RFC 3339). Tracked only while the idle
+	// timer is on, to about one minute of precision; omitted otherwise.
+	LastActivityAt time.Time `json:"lastActivityAt" format:"date-time"`
+	OwnerID        string    `json:"ownerId"`
+	ProviderID     string    `json:"providerId"`
+	// Why the device was last stopped. Present only while state is stopped; clients
+	// should use this value instead of parsing stateMessage.
+	//
+	// Any of "STOP_REQUESTED", "MINUTE_BALANCE_EXHAUSTED", "RESOURCE_EXHAUSTED",
+	// "SUBSCRIPTION_REQUIRED", "PAYMENT_REQUIRED", "DEVICE_OPERATION_FAILED",
+	// "DEVICE_LEFT", "IDLE_TIMEOUT".
+	StopReason DeviceUpdateIdleTimeoutResponseStopReason `json:"stopReason"`
+	// When devices-api recorded the stop reason (RFC 3339). Present only while state
+	// is stopped and a reason is recorded.
+	StopReasonAt time.Time `json:"stopReasonAt" format:"date-time"`
+	StreamToken  string    `json:"streamToken"`
+	// Deprecated: use ownerId/createdBy.
+	//
+	// Deprecated: deprecated
+	UserID string `json:"userId"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID                        respjson.Field
+		ActiveTaskID              respjson.Field
+		AssignedAt                respjson.Field
+		CreatedAt                 respjson.Field
+		Name                      respjson.Field
+		Platform                  respjson.Field
+		State                     respjson.Field
+		StateMessage              respjson.Field
+		StreamURL                 respjson.Field
+		TaskCount                 respjson.Field
+		TerminatesAt              respjson.Field
+		Type                      respjson.Field
+		UpdatedAt                 respjson.Field
+		Schema                    respjson.Field
+		BillingStrategy           respjson.Field
+		CreatedBy                 respjson.Field
+		IdleTimeoutDefaultMinutes respjson.Field
+		IdleTimeoutMinutes        respjson.Field
+		IdleTimeoutSource         respjson.Field
+		LastActivityAt            respjson.Field
+		OwnerID                   respjson.Field
+		ProviderID                respjson.Field
+		StopReason                respjson.Field
+		StopReasonAt              respjson.Field
+		StreamToken               respjson.Field
+		UserID                    respjson.Field
+		ExtraFields               map[string]respjson.Field
+		raw                       string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r DeviceUpdateIdleTimeoutResponse) RawJSON() string { return r.JSON.raw }
+func (r *DeviceUpdateIdleTimeoutResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Operating system the device runs.
+type DeviceUpdateIdleTimeoutResponsePlatform string
+
+const (
+	DeviceUpdateIdleTimeoutResponsePlatformAndroid DeviceUpdateIdleTimeoutResponsePlatform = "android"
+	DeviceUpdateIdleTimeoutResponsePlatformIos     DeviceUpdateIdleTimeoutResponsePlatform = "ios"
+)
+
+// Where idleTimeoutMinutes comes from: device = the device's own setting (also
+// when it is off), default = the platform default. Omitted when no idle timer can
+// apply.
+type DeviceUpdateIdleTimeoutResponseIdleTimeoutSource string
+
+const (
+	DeviceUpdateIdleTimeoutResponseIdleTimeoutSourceDevice  DeviceUpdateIdleTimeoutResponseIdleTimeoutSource = "device"
+	DeviceUpdateIdleTimeoutResponseIdleTimeoutSourceDefault DeviceUpdateIdleTimeoutResponseIdleTimeoutSource = "default"
+)
+
+// Why the device was last stopped. Present only while state is stopped; clients
+// should use this value instead of parsing stateMessage.
+type DeviceUpdateIdleTimeoutResponseStopReason string
+
+const (
+	DeviceUpdateIdleTimeoutResponseStopReasonStopRequested          DeviceUpdateIdleTimeoutResponseStopReason = "STOP_REQUESTED"
+	DeviceUpdateIdleTimeoutResponseStopReasonMinuteBalanceExhausted DeviceUpdateIdleTimeoutResponseStopReason = "MINUTE_BALANCE_EXHAUSTED"
+	DeviceUpdateIdleTimeoutResponseStopReasonResourceExhausted      DeviceUpdateIdleTimeoutResponseStopReason = "RESOURCE_EXHAUSTED"
+	DeviceUpdateIdleTimeoutResponseStopReasonSubscriptionRequired   DeviceUpdateIdleTimeoutResponseStopReason = "SUBSCRIPTION_REQUIRED"
+	DeviceUpdateIdleTimeoutResponseStopReasonPaymentRequired        DeviceUpdateIdleTimeoutResponseStopReason = "PAYMENT_REQUIRED"
+	DeviceUpdateIdleTimeoutResponseStopReasonDeviceOperationFailed  DeviceUpdateIdleTimeoutResponseStopReason = "DEVICE_OPERATION_FAILED"
+	DeviceUpdateIdleTimeoutResponseStopReasonDeviceLeft             DeviceUpdateIdleTimeoutResponseStopReason = "DEVICE_LEFT"
+	DeviceUpdateIdleTimeoutResponseStopReasonIdleTimeout            DeviceUpdateIdleTimeoutResponseStopReason = "IDLE_TIMEOUT"
+)
+
 type DeviceWaitReadyResponse struct {
 	ID           string    `json:"id" api:"required"`
 	ActiveTaskID string    `json:"activeTaskId" api:"required"`
@@ -1359,5 +1512,22 @@ func (r DeviceTerminateParams) MarshalJSON() (data []byte, err error) {
 	return param.MarshalObject(r, (*shadow)(&r))
 }
 func (r *DeviceTerminateParams) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type DeviceUpdateIdleTimeoutParams struct {
+	// Minutes without client activity after which the device is stopped automatically:
+	// 5 to 240 sets a custom timeout, 0 turns the idle timer off for this device, null
+	// removes the device's own setting so the platform default applies again (if any).
+	// 1 to 4 are rejected.
+	Minutes param.Opt[int64] `json:"minutes,omitzero" api:"required"`
+	paramObj
+}
+
+func (r DeviceUpdateIdleTimeoutParams) MarshalJSON() (data []byte, err error) {
+	type shadow DeviceUpdateIdleTimeoutParams
+	return param.MarshalObject(r, (*shadow)(&r))
+}
+func (r *DeviceUpdateIdleTimeoutParams) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
