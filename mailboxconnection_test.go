@@ -1,0 +1,64 @@
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+package mobilerun_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+
+	"github.com/droidrun/mobilerun-sdk-go/v6"
+	"github.com/droidrun/mobilerun-sdk-go/v6/internal/testutil"
+	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+)
+
+func TestMailboxConnectionNewWithOptionalParams(t *testing.T) {
+	t.Skip("Mock server tests are disabled")
+	baseURL := "http://localhost:4010"
+	if envURL, ok := os.LookupEnv("TEST_API_BASE_URL"); ok {
+		baseURL = envURL
+	}
+	if !testutil.CheckTestServer(t, baseURL) {
+		return
+	}
+	client := mobilerun.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("My API Key"),
+	)
+	_, err := client.Mailboxes.Connections.New(context.TODO(), mobilerun.MailboxConnectionNewParams{
+		Provider:    mobilerun.MailboxConnectionNewParamsProviderGmail,
+		BindingHash: mobilerun.String("ecc2efdd09bd231a9ad9bd2aada37aa7ccc3d38a03cc25beb6c28aa0aaa316be"),
+		Label:       mobilerun.String("label"),
+	})
+	if err != nil {
+		var apierr *mobilerun.Error
+		if errors.As(err, &apierr) {
+			t.Log(string(apierr.DumpRequest(true)))
+		}
+		t.Fatalf("err should be nil: %s", err.Error())
+	}
+}
+
+func TestMailboxConnectionGet(t *testing.T) {
+	t.Skip("Mock server tests are disabled")
+	baseURL := "http://localhost:4010"
+	if envURL, ok := os.LookupEnv("TEST_API_BASE_URL"); ok {
+		baseURL = envURL
+	}
+	if !testutil.CheckTestServer(t, baseURL) {
+		return
+	}
+	client := mobilerun.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("My API Key"),
+	)
+	_, err := client.Mailboxes.Connections.Get(context.TODO(), "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e")
+	if err != nil {
+		var apierr *mobilerun.Error
+		if errors.As(err, &apierr) {
+			t.Log(string(apierr.DumpRequest(true)))
+		}
+		t.Fatalf("err should be nil: %s", err.Error())
+	}
+}
