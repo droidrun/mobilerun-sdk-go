@@ -1,0 +1,78 @@
+// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+package mobilerun_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/droidrun/mobilerun-sdk-go/v6"
+	"github.com/droidrun/mobilerun-sdk-go/v6/internal/testutil"
+	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+)
+
+func TestNumberMessageListWithOptionalParams(t *testing.T) {
+	t.Skip("Mock server tests are disabled")
+	baseURL := "http://localhost:4010"
+	if envURL, ok := os.LookupEnv("TEST_API_BASE_URL"); ok {
+		baseURL = envURL
+	}
+	if !testutil.CheckTestServer(t, baseURL) {
+		return
+	}
+	client := mobilerun.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("My API Key"),
+	)
+	_, err := client.Numbers.Messages.List(
+		context.TODO(),
+		"550e8400-e29b-41d4-a716-446655440000",
+		mobilerun.NumberMessageListParams{
+			Direction: mobilerun.NumberMessageListParamsDirectionAll,
+			Page:      mobilerun.Int(1),
+			PageSize:  mobilerun.Int(1),
+			Since:     mobilerun.Time(time.Now()),
+		},
+	)
+	if err != nil {
+		var apierr *mobilerun.Error
+		if errors.As(err, &apierr) {
+			t.Log(string(apierr.DumpRequest(true)))
+		}
+		t.Fatalf("err should be nil: %s", err.Error())
+	}
+}
+
+func TestNumberMessageSendWithOptionalParams(t *testing.T) {
+	t.Skip("Mock server tests are disabled")
+	baseURL := "http://localhost:4010"
+	if envURL, ok := os.LookupEnv("TEST_API_BASE_URL"); ok {
+		baseURL = envURL
+	}
+	if !testutil.CheckTestServer(t, baseURL) {
+		return
+	}
+	client := mobilerun.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("My API Key"),
+	)
+	_, err := client.Numbers.Messages.Send(
+		context.TODO(),
+		"550e8400-e29b-41d4-a716-446655440000",
+		mobilerun.NumberMessageSendParams{
+			Body:           "x",
+			To:             "+15551230001",
+			DeliveryReport: mobilerun.Bool(true),
+		},
+	)
+	if err != nil {
+		var apierr *mobilerun.Error
+		if errors.As(err, &apierr) {
+			t.Log(string(apierr.DumpRequest(true)))
+		}
+		t.Fatalf("err should be nil: %s", err.Error())
+	}
+}
