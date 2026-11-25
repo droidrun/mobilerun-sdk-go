@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WebhookDeliveryService contains methods and other services that help with
@@ -44,26 +44,63 @@ func NewWebhookDeliveryService(opts ...option.RequestOption) (r WebhookDeliveryS
 // filtered by delivery status (pending, success, skipped, or dead), by a `since`
 // timestamp, by `eventId` (exact match against the originating event id), and/or
 // by endpoint delivery `kind`.
-func (r *WebhookDeliveryService) List(ctx context.Context, query WebhookDeliveryListParams, opts ...option.RequestOption) (res *WebhookDeliveryListResponse, err error) {
+func (r *WebhookDeliveryService) List(ctx context.Context, query WebhookDeliveryListParams, opts ...option.RequestOption) (res *pagination.Page[WebhookDeliveryListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "webhooks/deliveries"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns a paginated feed of webhook deliveries across all of your subscriptions,
+// with the originating endpoint URL included on each record. Results can be
+// filtered by delivery status (pending, success, skipped, or dead), by a `since`
+// timestamp, by `eventId` (exact match against the originating event id), and/or
+// by endpoint delivery `kind`.
+func (r *WebhookDeliveryService) ListAutoPaging(ctx context.Context, query WebhookDeliveryListParams, opts ...option.RequestOption) *pagination.PageAutoPager[WebhookDeliveryListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Returns a paginated list of deliveries for a single webhook subscription,
 // identified by its id. Each record reports the event, delivery status, attempt
 // count, and the last response code or error. Results can be filtered by `eventId`
 // (exact match against the originating event id).
-func (r *WebhookDeliveryService) ListForWebhook(ctx context.Context, id string, query WebhookDeliveryListForWebhookParams, opts ...option.RequestOption) (res *WebhookDeliveryListForWebhookResponse, err error) {
+func (r *WebhookDeliveryService) ListForWebhook(ctx context.Context, id string, query WebhookDeliveryListForWebhookParams, opts ...option.RequestOption) (res *pagination.Page[WebhookDeliveryListForWebhookResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if id == "" {
 		err = errors.New("missing required id parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("webhooks/%s/deliveries", id)
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns a paginated list of deliveries for a single webhook subscription,
+// identified by its id. Each record reports the event, delivery status, attempt
+// count, and the last response code or error. Results can be filtered by `eventId`
+// (exact match against the originating event id).
+func (r *WebhookDeliveryService) ListForWebhookAutoPaging(ctx context.Context, id string, query WebhookDeliveryListForWebhookParams, opts ...option.RequestOption) *pagination.PageAutoPager[WebhookDeliveryListForWebhookResponse] {
+	return pagination.NewPageAutoPager(r.ListForWebhook(ctx, id, query, opts...))
 }
 
 // Returns a single delivery for a webhook subscription along with the full list of
@@ -96,24 +133,6 @@ func (r *WebhookDeliveryService) Stats(ctx context.Context, query WebhookDeliver
 }
 
 type WebhookDeliveryListResponse struct {
-	Items      []WebhookDeliveryListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                 `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WebhookDeliveryListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WebhookDeliveryListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WebhookDeliveryListResponseItem struct {
 	ID          string  `json:"id" api:"required" format:"uuid"`
 	Attempts    float64 `json:"attempts" api:"required"`
 	CompletedAt string  `json:"completedAt" api:"required"`
@@ -124,7 +143,7 @@ type WebhookDeliveryListResponseItem struct {
 	DurationMs float64 `json:"durationMs" api:"required"`
 	EndpointID string  `json:"endpointId" api:"required" format:"uuid"`
 	// Any of "http", "integration".
-	EndpointKind string `json:"endpointKind" api:"required"`
+	EndpointKind WebhookDeliveryListResponseEndpointKind `json:"endpointKind" api:"required"`
 	// Integration target label of the parent webhook (e.g. `#ops`); null for `http`
 	// webhooks.
 	EndpointLabel string `json:"endpointLabel" api:"required"`
@@ -138,7 +157,7 @@ type WebhookDeliveryListResponseItem struct {
 	OccurredAt     string  `json:"occurredAt" api:"required"`
 	Source         string  `json:"source" api:"required"`
 	// Any of "pending", "success", "skipped", "dead".
-	Status string `json:"status" api:"required"`
+	Status WebhookDeliveryListResponseStatus `json:"status" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID             respjson.Field
@@ -165,30 +184,28 @@ type WebhookDeliveryListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WebhookDeliveryListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WebhookDeliveryListResponseItem) UnmarshalJSON(data []byte) error {
+func (r WebhookDeliveryListResponse) RawJSON() string { return r.JSON.raw }
+func (r *WebhookDeliveryListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type WebhookDeliveryListResponseEndpointKind string
+
+const (
+	WebhookDeliveryListResponseEndpointKindHTTP        WebhookDeliveryListResponseEndpointKind = "http"
+	WebhookDeliveryListResponseEndpointKindIntegration WebhookDeliveryListResponseEndpointKind = "integration"
+)
+
+type WebhookDeliveryListResponseStatus string
+
+const (
+	WebhookDeliveryListResponseStatusPending WebhookDeliveryListResponseStatus = "pending"
+	WebhookDeliveryListResponseStatusSuccess WebhookDeliveryListResponseStatus = "success"
+	WebhookDeliveryListResponseStatusSkipped WebhookDeliveryListResponseStatus = "skipped"
+	WebhookDeliveryListResponseStatusDead    WebhookDeliveryListResponseStatus = "dead"
+)
 
 type WebhookDeliveryListForWebhookResponse struct {
-	Items      []WebhookDeliveryListForWebhookResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                           `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WebhookDeliveryListForWebhookResponse) RawJSON() string { return r.JSON.raw }
-func (r *WebhookDeliveryListForWebhookResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WebhookDeliveryListForWebhookResponseItem struct {
 	ID          string  `json:"id" api:"required" format:"uuid"`
 	Attempts    float64 `json:"attempts" api:"required"`
 	CompletedAt string  `json:"completedAt" api:"required"`
@@ -206,7 +223,7 @@ type WebhookDeliveryListForWebhookResponseItem struct {
 	OccurredAt     string  `json:"occurredAt" api:"required"`
 	Source         string  `json:"source" api:"required"`
 	// Any of "pending", "success", "skipped", "dead".
-	Status string `json:"status" api:"required"`
+	Status WebhookDeliveryListForWebhookResponseStatus `json:"status" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID             respjson.Field
@@ -230,10 +247,19 @@ type WebhookDeliveryListForWebhookResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WebhookDeliveryListForWebhookResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WebhookDeliveryListForWebhookResponseItem) UnmarshalJSON(data []byte) error {
+func (r WebhookDeliveryListForWebhookResponse) RawJSON() string { return r.JSON.raw }
+func (r *WebhookDeliveryListForWebhookResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type WebhookDeliveryListForWebhookResponseStatus string
+
+const (
+	WebhookDeliveryListForWebhookResponseStatusPending WebhookDeliveryListForWebhookResponseStatus = "pending"
+	WebhookDeliveryListForWebhookResponseStatusSuccess WebhookDeliveryListForWebhookResponseStatus = "success"
+	WebhookDeliveryListForWebhookResponseStatusSkipped WebhookDeliveryListForWebhookResponseStatus = "skipped"
+	WebhookDeliveryListForWebhookResponseStatusDead    WebhookDeliveryListForWebhookResponseStatus = "dead"
+)
 
 type WebhookDeliveryGetAttemptsResponse struct {
 	Data WebhookDeliveryGetAttemptsResponseData `json:"data" api:"required"`

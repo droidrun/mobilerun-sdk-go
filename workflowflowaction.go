@@ -100,8 +100,62 @@ func (r *WorkflowFlowActionService) Replace(ctx context.Context, flowID string, 
 	return res, err
 }
 
+type FlowAction struct {
+	ID                 string              `json:"id" api:"required" format:"uuid"`
+	ActionID           string              `json:"actionId" api:"required" format:"uuid"`
+	ContinueOnError    bool                `json:"continueOnError" api:"required"`
+	CreatedAt          time.Time           `json:"createdAt" api:"required" format:"date-time"`
+	FlowID             string              `json:"flowId" api:"required" format:"uuid"`
+	Key                string              `json:"key" api:"required"`
+	NameOverride       string              `json:"nameOverride" api:"required"`
+	Overrides          FlowActionOverrides `json:"overrides" api:"required"`
+	ParentFlowActionID string              `json:"parentFlowActionId" api:"required" format:"uuid"`
+	Position           int64               `json:"position" api:"required"`
+	// Selected for per-step recording under the flow's "selected_steps" recording
+	// policy.
+	RecordingEnabled bool `json:"recordingEnabled" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID                 respjson.Field
+		ActionID           respjson.Field
+		ContinueOnError    respjson.Field
+		CreatedAt          respjson.Field
+		FlowID             respjson.Field
+		Key                respjson.Field
+		NameOverride       respjson.Field
+		Overrides          respjson.Field
+		ParentFlowActionID respjson.Field
+		Position           respjson.Field
+		RecordingEnabled   respjson.Field
+		ExtraFields        map[string]respjson.Field
+		raw                string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r FlowAction) RawJSON() string { return r.JSON.raw }
+func (r *FlowAction) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type FlowActionOverrides struct {
+	Params map[string]any `json:"params"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Params      respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r FlowActionOverrides) RawJSON() string { return r.JSON.raw }
+func (r *FlowActionOverrides) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type WorkflowFlowActionListResponse struct {
-	Data []WorkflowFlowActionListResponseData `json:"data" api:"required"`
+	Data []FlowAction `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -116,62 +170,8 @@ func (r *WorkflowFlowActionListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowActionListResponseData struct {
-	ID                 string                                      `json:"id" api:"required" format:"uuid"`
-	ActionID           string                                      `json:"actionId" api:"required" format:"uuid"`
-	ContinueOnError    bool                                        `json:"continueOnError" api:"required"`
-	CreatedAt          time.Time                                   `json:"createdAt" api:"required" format:"date-time"`
-	FlowID             string                                      `json:"flowId" api:"required" format:"uuid"`
-	Key                string                                      `json:"key" api:"required"`
-	NameOverride       string                                      `json:"nameOverride" api:"required"`
-	Overrides          WorkflowFlowActionListResponseDataOverrides `json:"overrides" api:"required"`
-	ParentFlowActionID string                                      `json:"parentFlowActionId" api:"required" format:"uuid"`
-	Position           int64                                       `json:"position" api:"required"`
-	// Selected for per-step recording under the flow's "selected_steps" recording
-	// policy.
-	RecordingEnabled bool `json:"recordingEnabled" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                 respjson.Field
-		ActionID           respjson.Field
-		ContinueOnError    respjson.Field
-		CreatedAt          respjson.Field
-		FlowID             respjson.Field
-		Key                respjson.Field
-		NameOverride       respjson.Field
-		Overrides          respjson.Field
-		ParentFlowActionID respjson.Field
-		Position           respjson.Field
-		RecordingEnabled   respjson.Field
-		ExtraFields        map[string]respjson.Field
-		raw                string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionListResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionListResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowActionListResponseDataOverrides struct {
-	Params map[string]any `json:"params"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Params      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionListResponseDataOverrides) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionListResponseDataOverrides) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowActionAddResponse struct {
-	Data WorkflowFlowActionAddResponseData `json:"data" api:"required"`
+	Data FlowAction `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -183,60 +183,6 @@ type WorkflowFlowActionAddResponse struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowFlowActionAddResponse) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowFlowActionAddResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowActionAddResponseData struct {
-	ID                 string                                     `json:"id" api:"required" format:"uuid"`
-	ActionID           string                                     `json:"actionId" api:"required" format:"uuid"`
-	ContinueOnError    bool                                       `json:"continueOnError" api:"required"`
-	CreatedAt          time.Time                                  `json:"createdAt" api:"required" format:"date-time"`
-	FlowID             string                                     `json:"flowId" api:"required" format:"uuid"`
-	Key                string                                     `json:"key" api:"required"`
-	NameOverride       string                                     `json:"nameOverride" api:"required"`
-	Overrides          WorkflowFlowActionAddResponseDataOverrides `json:"overrides" api:"required"`
-	ParentFlowActionID string                                     `json:"parentFlowActionId" api:"required" format:"uuid"`
-	Position           int64                                      `json:"position" api:"required"`
-	// Selected for per-step recording under the flow's "selected_steps" recording
-	// policy.
-	RecordingEnabled bool `json:"recordingEnabled" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                 respjson.Field
-		ActionID           respjson.Field
-		ContinueOnError    respjson.Field
-		CreatedAt          respjson.Field
-		FlowID             respjson.Field
-		Key                respjson.Field
-		NameOverride       respjson.Field
-		Overrides          respjson.Field
-		ParentFlowActionID respjson.Field
-		Position           respjson.Field
-		RecordingEnabled   respjson.Field
-		ExtraFields        map[string]respjson.Field
-		raw                string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionAddResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionAddResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowActionAddResponseDataOverrides struct {
-	Params map[string]any `json:"params"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Params      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionAddResponseDataOverrides) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionAddResponseDataOverrides) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -257,7 +203,7 @@ func (r *WorkflowFlowActionRemoveResponse) UnmarshalJSON(data []byte) error {
 }
 
 type WorkflowFlowActionReplaceResponse struct {
-	Data []WorkflowFlowActionReplaceResponseData `json:"data" api:"required"`
+	Data []FlowAction `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -269,60 +215,6 @@ type WorkflowFlowActionReplaceResponse struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowFlowActionReplaceResponse) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowFlowActionReplaceResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowActionReplaceResponseData struct {
-	ID                 string                                         `json:"id" api:"required" format:"uuid"`
-	ActionID           string                                         `json:"actionId" api:"required" format:"uuid"`
-	ContinueOnError    bool                                           `json:"continueOnError" api:"required"`
-	CreatedAt          time.Time                                      `json:"createdAt" api:"required" format:"date-time"`
-	FlowID             string                                         `json:"flowId" api:"required" format:"uuid"`
-	Key                string                                         `json:"key" api:"required"`
-	NameOverride       string                                         `json:"nameOverride" api:"required"`
-	Overrides          WorkflowFlowActionReplaceResponseDataOverrides `json:"overrides" api:"required"`
-	ParentFlowActionID string                                         `json:"parentFlowActionId" api:"required" format:"uuid"`
-	Position           int64                                          `json:"position" api:"required"`
-	// Selected for per-step recording under the flow's "selected_steps" recording
-	// policy.
-	RecordingEnabled bool `json:"recordingEnabled" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                 respjson.Field
-		ActionID           respjson.Field
-		ContinueOnError    respjson.Field
-		CreatedAt          respjson.Field
-		FlowID             respjson.Field
-		Key                respjson.Field
-		NameOverride       respjson.Field
-		Overrides          respjson.Field
-		ParentFlowActionID respjson.Field
-		Position           respjson.Field
-		RecordingEnabled   respjson.Field
-		ExtraFields        map[string]respjson.Field
-		raw                string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionReplaceResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionReplaceResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowActionReplaceResponseDataOverrides struct {
-	Params map[string]any `json:"params"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Params      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActionReplaceResponseDataOverrides) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActionReplaceResponseDataOverrides) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

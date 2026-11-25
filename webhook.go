@@ -14,9 +14,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WebhookService contains methods and other services that help with interacting
@@ -98,11 +98,30 @@ func (r *WebhookService) Update(ctx context.Context, id string, body WebhookUpda
 // substring match against the URL or description), and/or by delivery `kind`. The
 // response also includes per-status counts across all of your subscriptions (of
 // the requested `kind`, if given; the other filters do not apply to the counts).
-func (r *WebhookService) List(ctx context.Context, query WebhookListParams, opts ...option.RequestOption) (res *WebhookListResponse, err error) {
+func (r *WebhookService) List(ctx context.Context, query WebhookListParams, opts ...option.RequestOption) (res *pagination.Page[WebhookListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "webhooks"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns a paginated list of your webhook subscriptions, optionally filtered by
+// status (active, failing, blocked, or disabled), by `search` (a case-insensitive
+// substring match against the URL or description), and/or by delivery `kind`. The
+// response also includes per-status counts across all of your subscriptions (of
+// the requested `kind`, if given; the other filters do not apply to the counts).
+func (r *WebhookService) ListAutoPaging(ctx context.Context, query WebhookListParams, opts ...option.RequestOption) *pagination.PageAutoPager[WebhookListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Deletes a webhook subscription so it stops receiving deliveries. Returns 204 No
@@ -495,50 +514,6 @@ func (r *WebhookUpdateResponseDataIntegrationCapability) UnmarshalJSON(data []by
 }
 
 type WebhookListResponse struct {
-	Counts     WebhookListResponseCounts `json:"counts" api:"required"`
-	Items      []WebhookListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination         `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Counts      respjson.Field
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WebhookListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WebhookListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WebhookListResponseCounts struct {
-	Active   float64 `json:"active" api:"required"`
-	Blocked  float64 `json:"blocked" api:"required"`
-	Disabled float64 `json:"disabled" api:"required"`
-	Failing  float64 `json:"failing" api:"required"`
-	Total    float64 `json:"total" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Active      respjson.Field
-		Blocked     respjson.Field
-		Disabled    respjson.Field
-		Failing     respjson.Field
-		Total       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WebhookListResponseCounts) RawJSON() string { return r.JSON.raw }
-func (r *WebhookListResponseCounts) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WebhookListResponseItem struct {
 	ID        string `json:"id" api:"required" format:"uuid"`
 	BlockedAt string `json:"blockedAt" api:"required"`
 	// Why the webhook was blocked, e.g. `integration_disconnected` (reconnect the
@@ -554,19 +529,19 @@ type WebhookListResponseItem struct {
 	// sustained failure; PATCH state=ACTIVE to re-enable.
 	//
 	// Any of "healthy", "failing", "blocked".
-	Health string `json:"health" api:"required"`
+	Health WebhookListResponseHealth `json:"health" api:"required"`
 	// Integration target; null for `http` webhooks.
-	Integration WebhookListResponseItemIntegration `json:"integration" api:"required"`
+	Integration WebhookListResponseIntegration `json:"integration" api:"required"`
 	// `http` posts signed JSON to `url`; `integration` posts a message through a
 	// connected integration (e.g. a Slack channel).
 	//
 	// Any of "http", "integration".
-	Kind string `json:"kind" api:"required"`
+	Kind WebhookListResponseKind `json:"kind" api:"required"`
 	// Always false for `integration` webhooks.
 	SigningEnabled bool `json:"signingEnabled" api:"required"`
 	// Any of "ACTIVE", "DISABLED", "DELETED".
-	State     string `json:"state" api:"required"`
-	UpdatedAt string `json:"updatedAt" api:"required"`
+	State     WebhookListResponseState `json:"state" api:"required"`
+	UpdatedAt string                   `json:"updatedAt" api:"required"`
 	// Delivery URL; null for `integration` webhooks.
 	URL string `json:"url" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -591,15 +566,25 @@ type WebhookListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WebhookListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WebhookListResponseItem) UnmarshalJSON(data []byte) error {
+func (r WebhookListResponse) RawJSON() string { return r.JSON.raw }
+func (r *WebhookListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
+// System-observed delivery health. `blocked` endpoints are auto-disabled after
+// sustained failure; PATCH state=ACTIVE to re-enable.
+type WebhookListResponseHealth string
+
+const (
+	WebhookListResponseHealthHealthy WebhookListResponseHealth = "healthy"
+	WebhookListResponseHealthFailing WebhookListResponseHealth = "failing"
+	WebhookListResponseHealthBlocked WebhookListResponseHealth = "blocked"
+)
+
 // Integration target; null for `http` webhooks.
-type WebhookListResponseItemIntegration struct {
-	Args       map[string]any                               `json:"args" api:"required"`
-	Capability WebhookListResponseItemIntegrationCapability `json:"capability" api:"required"`
+type WebhookListResponseIntegration struct {
+	Args       map[string]any                           `json:"args" api:"required"`
+	Capability WebhookListResponseIntegrationCapability `json:"capability" api:"required"`
 	// Target name at creation time, e.g. `#ops`.
 	Label string `json:"label" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -613,12 +598,12 @@ type WebhookListResponseItemIntegration struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WebhookListResponseItemIntegration) RawJSON() string { return r.JSON.raw }
-func (r *WebhookListResponseItemIntegration) UnmarshalJSON(data []byte) error {
+func (r WebhookListResponseIntegration) RawJSON() string { return r.JSON.raw }
+func (r *WebhookListResponseIntegration) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WebhookListResponseItemIntegrationCapability struct {
+type WebhookListResponseIntegrationCapability struct {
 	ID       string `json:"id" api:"required"`
 	Revision int64  `json:"revision" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -631,10 +616,27 @@ type WebhookListResponseItemIntegrationCapability struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WebhookListResponseItemIntegrationCapability) RawJSON() string { return r.JSON.raw }
-func (r *WebhookListResponseItemIntegrationCapability) UnmarshalJSON(data []byte) error {
+func (r WebhookListResponseIntegrationCapability) RawJSON() string { return r.JSON.raw }
+func (r *WebhookListResponseIntegrationCapability) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+// `http` posts signed JSON to `url`; `integration` posts a message through a
+// connected integration (e.g. a Slack channel).
+type WebhookListResponseKind string
+
+const (
+	WebhookListResponseKindHTTP        WebhookListResponseKind = "http"
+	WebhookListResponseKindIntegration WebhookListResponseKind = "integration"
+)
+
+type WebhookListResponseState string
+
+const (
+	WebhookListResponseStateActive   WebhookListResponseState = "ACTIVE"
+	WebhookListResponseStateDisabled WebhookListResponseState = "DISABLED"
+	WebhookListResponseStateDeleted  WebhookListResponseState = "DELETED"
+)
 
 type WebhookRotateSecretResponse struct {
 	Data WebhookRotateSecretResponseData `json:"data" api:"required"`
