@@ -25,9 +25,9 @@ func TestUsage(t *testing.T) {
 		option.WithBaseURL(baseURL),
 		option.WithAPIKey("My API Key"),
 	)
-	devices, err := client.Devices.List(context.TODO(), mobilerun.DeviceListParams{})
+	page, err := client.Devices.List(context.TODO(), mobilerun.DeviceListParams{})
 	if err != nil {
 		t.Fatalf("err should be nil: %s", err.Error())
 	}
-	t.Logf("%+v\n", devices.Items)
+	t.Logf("%+v\n", page)
 }

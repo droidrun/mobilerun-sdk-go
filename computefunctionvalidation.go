@@ -230,8 +230,8 @@ type ComputeFunctionValidationNewParams struct {
 	Source string `json:"source" api:"required"`
 	// Wait up to 25 seconds for validation to finish. Excess waiters return
 	// immediately.
-	WaitS    param.Opt[int64]                           `query:"waitS,omitzero" json:"-"`
-	Manifest ComputeFunctionValidationNewParamsManifest `json:"manifest,omitzero"`
+	WaitS    param.Opt[int64]      `query:"waitS,omitzero" json:"-"`
+	Manifest FunctionManifestParam `json:"manifest,omitzero"`
 	paramObj
 }
 
@@ -250,36 +250,6 @@ func (r ComputeFunctionValidationNewParams) URLQuery() (v url.Values, err error)
 		ArrayFormat:  apiquery.ArrayQueryFormatComma,
 		NestedFormat: apiquery.NestedQueryFormatBrackets,
 	})
-}
-
-type ComputeFunctionValidationNewParamsManifest struct {
-	Credentials []ComputeFunctionValidationNewParamsManifestCredential `json:"credentials,omitzero"`
-	Hosts       []string                                               `json:"hosts,omitzero"`
-	Scopes      []string                                               `json:"scopes,omitzero"`
-	paramObj
-}
-
-func (r ComputeFunctionValidationNewParamsManifest) MarshalJSON() (data []byte, err error) {
-	type shadow ComputeFunctionValidationNewParamsManifest
-	return param.MarshalObject(r, (*shadow)(&r))
-}
-func (r *ComputeFunctionValidationNewParamsManifest) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The properties Name, PackageName are required.
-type ComputeFunctionValidationNewParamsManifestCredential struct {
-	Name        string `json:"name" api:"required"`
-	PackageName string `json:"packageName" api:"required"`
-	paramObj
-}
-
-func (r ComputeFunctionValidationNewParamsManifestCredential) MarshalJSON() (data []byte, err error) {
-	type shadow ComputeFunctionValidationNewParamsManifestCredential
-	return param.MarshalObject(r, (*shadow)(&r))
-}
-func (r *ComputeFunctionValidationNewParamsManifestCredential) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
 }
 
 type ComputeFunctionValidationGetParams struct {

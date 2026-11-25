@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // MessageService contains methods and other services that help with interacting
@@ -57,15 +57,119 @@ func (r *MessageService) Get(ctx context.Context, id string, opts ...option.Requ
 
 // Lists SMS messages newest first, with filters for direction, eSIM, phone number,
 // status, and conversation.
-func (r *MessageService) List(ctx context.Context, query MessageListParams, opts ...option.RequestOption) (res *MessageListResponse, err error) {
+func (r *MessageService) List(ctx context.Context, query MessageListParams, opts ...option.RequestOption) (res *pagination.Page[PublicMessageRow], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "numbers/messages"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
 }
 
+// Lists SMS messages newest first, with filters for direction, eSIM, phone number,
+// status, and conversation.
+func (r *MessageService) ListAutoPaging(ctx context.Context, query MessageListParams, opts ...option.RequestOption) *pagination.PageAutoPager[PublicMessageRow] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
+}
+
+type PublicMessageRow struct {
+	ID             string                         `json:"id" api:"required" format:"uuid"`
+	Body           string                         `json:"body" api:"required"`
+	Classification PublicMessageRowClassification `json:"classification" api:"required"`
+	CreatedAt      time.Time                      `json:"createdAt" api:"required" format:"date-time"`
+	DeliveryStatus string                         `json:"deliveryStatus" api:"required"`
+	DetectedSender string                         `json:"detectedSender" api:"required"`
+	// Any of "inbound", "outbound".
+	Direction    PublicMessageRowDirection `json:"direction" api:"required"`
+	EsimID       string                    `json:"esimId" api:"required" format:"uuid"`
+	OccurredAt   time.Time                 `json:"occurredAt" api:"required" format:"date-time"`
+	PeerKey      string                    `json:"peerKey" api:"required"`
+	PeerNumber   string                    `json:"peerNumber" api:"required"`
+	ProviderCode string                    `json:"providerCode" api:"required"`
+	// Message status. Outbound messages move queued → sending → sent, or end at
+	// failed. `sent` means the mobile network accepted the message and is the final
+	// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
+	// current lines return no carrier delivery report, so neither is emitted.
+	//
+	// Any of "received", "queued", "claimed", "sending", "sent", "sent_unconfirmed",
+	// "delivered", "failed".
+	Status PublicMessageRowStatus `json:"status" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID             respjson.Field
+		Body           respjson.Field
+		Classification respjson.Field
+		CreatedAt      respjson.Field
+		DeliveryStatus respjson.Field
+		DetectedSender respjson.Field
+		Direction      respjson.Field
+		EsimID         respjson.Field
+		OccurredAt     respjson.Field
+		PeerKey        respjson.Field
+		PeerNumber     respjson.Field
+		ProviderCode   respjson.Field
+		Status         respjson.Field
+		ExtraFields    map[string]respjson.Field
+		raw            string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicMessageRow) RawJSON() string { return r.JSON.raw }
+func (r *PublicMessageRow) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type PublicMessageRowClassification struct {
+	Spam bool `json:"spam" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Spam        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicMessageRowClassification) RawJSON() string { return r.JSON.raw }
+func (r *PublicMessageRowClassification) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type PublicMessageRowDirection string
+
+const (
+	PublicMessageRowDirectionInbound  PublicMessageRowDirection = "inbound"
+	PublicMessageRowDirectionOutbound PublicMessageRowDirection = "outbound"
+)
+
+// Message status. Outbound messages move queued → sending → sent, or end at
+// failed. `sent` means the mobile network accepted the message and is the final
+// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
+// current lines return no carrier delivery report, so neither is emitted.
+type PublicMessageRowStatus string
+
+const (
+	PublicMessageRowStatusReceived        PublicMessageRowStatus = "received"
+	PublicMessageRowStatusQueued          PublicMessageRowStatus = "queued"
+	PublicMessageRowStatusClaimed         PublicMessageRowStatus = "claimed"
+	PublicMessageRowStatusSending         PublicMessageRowStatus = "sending"
+	PublicMessageRowStatusSent            PublicMessageRowStatus = "sent"
+	PublicMessageRowStatusSentUnconfirmed PublicMessageRowStatus = "sent_unconfirmed"
+	PublicMessageRowStatusDelivered       PublicMessageRowStatus = "delivered"
+	PublicMessageRowStatusFailed          PublicMessageRowStatus = "failed"
+)
+
 type MessageGetResponse struct {
-	Data MessageGetResponseData `json:"data" api:"required"`
+	Data PublicMessageRow `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -77,152 +181,6 @@ type MessageGetResponse struct {
 // Returns the unmodified JSON received from the API
 func (r MessageGetResponse) RawJSON() string { return r.JSON.raw }
 func (r *MessageGetResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MessageGetResponseData struct {
-	ID             string                               `json:"id" api:"required" format:"uuid"`
-	Body           string                               `json:"body" api:"required"`
-	Classification MessageGetResponseDataClassification `json:"classification" api:"required"`
-	CreatedAt      time.Time                            `json:"createdAt" api:"required" format:"date-time"`
-	DeliveryStatus string                               `json:"deliveryStatus" api:"required"`
-	DetectedSender string                               `json:"detectedSender" api:"required"`
-	// Any of "inbound", "outbound".
-	Direction    string    `json:"direction" api:"required"`
-	EsimID       string    `json:"esimId" api:"required" format:"uuid"`
-	OccurredAt   time.Time `json:"occurredAt" api:"required" format:"date-time"`
-	PeerKey      string    `json:"peerKey" api:"required"`
-	PeerNumber   string    `json:"peerNumber" api:"required"`
-	ProviderCode string    `json:"providerCode" api:"required"`
-	// Message status. Outbound messages move queued → sending → sent, or end at
-	// failed. `sent` means the mobile network accepted the message and is the final
-	// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
-	// current lines return no carrier delivery report, so neither is emitted.
-	//
-	// Any of "received", "queued", "claimed", "sending", "sent", "sent_unconfirmed",
-	// "delivered", "failed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		Body           respjson.Field
-		Classification respjson.Field
-		CreatedAt      respjson.Field
-		DeliveryStatus respjson.Field
-		DetectedSender respjson.Field
-		Direction      respjson.Field
-		EsimID         respjson.Field
-		OccurredAt     respjson.Field
-		PeerKey        respjson.Field
-		PeerNumber     respjson.Field
-		ProviderCode   respjson.Field
-		Status         respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MessageGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MessageGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MessageGetResponseDataClassification struct {
-	Spam bool `json:"spam" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Spam        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MessageGetResponseDataClassification) RawJSON() string { return r.JSON.raw }
-func (r *MessageGetResponseDataClassification) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MessageListResponse struct {
-	Items      []MessageListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination         `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MessageListResponse) RawJSON() string { return r.JSON.raw }
-func (r *MessageListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MessageListResponseItem struct {
-	ID             string                                `json:"id" api:"required" format:"uuid"`
-	Body           string                                `json:"body" api:"required"`
-	Classification MessageListResponseItemClassification `json:"classification" api:"required"`
-	CreatedAt      time.Time                             `json:"createdAt" api:"required" format:"date-time"`
-	DeliveryStatus string                                `json:"deliveryStatus" api:"required"`
-	DetectedSender string                                `json:"detectedSender" api:"required"`
-	// Any of "inbound", "outbound".
-	Direction    string    `json:"direction" api:"required"`
-	EsimID       string    `json:"esimId" api:"required" format:"uuid"`
-	OccurredAt   time.Time `json:"occurredAt" api:"required" format:"date-time"`
-	PeerKey      string    `json:"peerKey" api:"required"`
-	PeerNumber   string    `json:"peerNumber" api:"required"`
-	ProviderCode string    `json:"providerCode" api:"required"`
-	// Message status. Outbound messages move queued → sending → sent, or end at
-	// failed. `sent` means the mobile network accepted the message and is the final
-	// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
-	// current lines return no carrier delivery report, so neither is emitted.
-	//
-	// Any of "received", "queued", "claimed", "sending", "sent", "sent_unconfirmed",
-	// "delivered", "failed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		Body           respjson.Field
-		Classification respjson.Field
-		CreatedAt      respjson.Field
-		DeliveryStatus respjson.Field
-		DetectedSender respjson.Field
-		Direction      respjson.Field
-		EsimID         respjson.Field
-		OccurredAt     respjson.Field
-		PeerKey        respjson.Field
-		PeerNumber     respjson.Field
-		ProviderCode   respjson.Field
-		Status         respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MessageListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *MessageListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MessageListResponseItemClassification struct {
-	Spam bool `json:"spam" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Spam        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MessageListResponseItemClassification) RawJSON() string { return r.JSON.raw }
-func (r *MessageListResponseItemClassification) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
