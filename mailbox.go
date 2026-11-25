@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // MailboxService contains methods and other services that help with interacting
@@ -80,11 +80,26 @@ func (r *MailboxService) Update(ctx context.Context, mailboxID string, body Mail
 }
 
 // Lists the caller-owned mailboxes with page-based pagination.
-func (r *MailboxService) List(ctx context.Context, query MailboxListParams, opts ...option.RequestOption) (res *MailboxListResponse, err error) {
+func (r *MailboxService) List(ctx context.Context, query MailboxListParams, opts ...option.RequestOption) (res *pagination.Page[Mailbox], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "mailboxes"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Lists the caller-owned mailboxes with page-based pagination.
+func (r *MailboxService) ListAutoPaging(ctx context.Context, query MailboxListParams, opts ...option.RequestOption) *pagination.PageAutoPager[Mailbox] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Cancels a pending mailbox or schedules an active paid mailbox for cancellation.
@@ -161,8 +176,105 @@ func (r *MailboxService) Uncancel(ctx context.Context, mailboxID string, opts ..
 	return res, err
 }
 
+type Mailbox struct {
+	ID      string `json:"id" api:"required" format:"uuid"`
+	Address string `json:"address" api:"required"`
+	// Any of "rent", "included", "domain", "external".
+	BillingMode       MailboxBillingMode     `json:"billingMode" api:"required"`
+	CancelAtPeriodEnd bool                   `json:"cancelAtPeriodEnd" api:"required"`
+	CheckoutExpiresAt time.Time              `json:"checkoutExpiresAt" api:"required" format:"date-time"`
+	CheckoutURL       string                 `json:"checkoutUrl" api:"required"`
+	CreatedAt         time.Time              `json:"createdAt" api:"required" format:"date-time"`
+	CurrentPeriodEnd  time.Time              `json:"currentPeriodEnd" api:"required" format:"date-time"`
+	DomainID          string                 `json:"domainId" api:"required" format:"uuid"`
+	InboundMessages   MailboxInboundMessages `json:"inboundMessages" api:"required"`
+	Label             string                 `json:"label" api:"required"`
+	// Any of "matix", "gmail".
+	Provider MailboxProvider `json:"provider" api:"required"`
+	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
+	// "archived", "billing_error", "pending_connection", "connection_expired",
+	// "connection_removed".
+	Status MailboxStatus `json:"status" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID                respjson.Field
+		Address           respjson.Field
+		BillingMode       respjson.Field
+		CancelAtPeriodEnd respjson.Field
+		CheckoutExpiresAt respjson.Field
+		CheckoutURL       respjson.Field
+		CreatedAt         respjson.Field
+		CurrentPeriodEnd  respjson.Field
+		DomainID          respjson.Field
+		InboundMessages   respjson.Field
+		Label             respjson.Field
+		Provider          respjson.Field
+		Status            respjson.Field
+		ExtraFields       map[string]respjson.Field
+		raw               string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r Mailbox) RawJSON() string { return r.JSON.raw }
+func (r *Mailbox) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type MailboxBillingMode string
+
+const (
+	MailboxBillingModeRent     MailboxBillingMode = "rent"
+	MailboxBillingModeIncluded MailboxBillingMode = "included"
+	MailboxBillingModeDomain   MailboxBillingMode = "domain"
+	MailboxBillingModeExternal MailboxBillingMode = "external"
+)
+
+type MailboxInboundMessages struct {
+	Exhausted bool      `json:"exhausted" api:"required"`
+	Included  int64     `json:"included" api:"required"`
+	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
+	Used      int64     `json:"used" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Exhausted   respjson.Field
+		Included    respjson.Field
+		ResetsAt    respjson.Field
+		Used        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r MailboxInboundMessages) RawJSON() string { return r.JSON.raw }
+func (r *MailboxInboundMessages) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type MailboxProvider string
+
+const (
+	MailboxProviderMatix MailboxProvider = "matix"
+	MailboxProviderGmail MailboxProvider = "gmail"
+)
+
+type MailboxStatus string
+
+const (
+	MailboxStatusProvisioning      MailboxStatus = "provisioning"
+	MailboxStatusAwaitingPayment   MailboxStatus = "awaiting_payment"
+	MailboxStatusActive            MailboxStatus = "active"
+	MailboxStatusCancelScheduled   MailboxStatus = "cancel_scheduled"
+	MailboxStatusArchived          MailboxStatus = "archived"
+	MailboxStatusBillingError      MailboxStatus = "billing_error"
+	MailboxStatusPendingConnection MailboxStatus = "pending_connection"
+	MailboxStatusConnectionExpired MailboxStatus = "connection_expired"
+	MailboxStatusConnectionRemoved MailboxStatus = "connection_removed"
+)
+
 type MailboxNewResponse struct {
-	Data MailboxNewResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -177,75 +289,8 @@ func (r *MailboxNewResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type MailboxNewResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                  `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                             `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                             `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                             `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxNewResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxNewResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxNewResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxNewResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxNewResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxNewResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type MailboxGetResponse struct {
-	Data MailboxGetResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -260,75 +305,8 @@ func (r *MailboxGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type MailboxGetResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                  `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                             `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                             `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                             `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxGetResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxGetResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxGetResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxGetResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type MailboxUpdateResponse struct {
-	Data MailboxUpdateResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -343,160 +321,8 @@ func (r *MailboxUpdateResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type MailboxUpdateResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                   `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                     `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                                `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                   `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                                `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                                `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                   `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxUpdateResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                   `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxUpdateResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxUpdateResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxUpdateResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxUpdateResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxUpdateResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxListResponse struct {
-	Items      []MailboxListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination         `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxListResponse) RawJSON() string { return r.JSON.raw }
-func (r *MailboxListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxListResponseItem struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                 `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                   `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                              `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                 `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                              `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                              `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                 `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxListResponseItemInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                 `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *MailboxListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxListResponseItemInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxListResponseItemInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxListResponseItemInboundMessages) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type MailboxDeleteResponse struct {
-	Data MailboxDeleteResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -508,73 +334,6 @@ type MailboxDeleteResponse struct {
 // Returns the unmodified JSON received from the API
 func (r MailboxDeleteResponse) RawJSON() string { return r.JSON.raw }
 func (r *MailboxDeleteResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxDeleteResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                   `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                     `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                                `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                   `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                                `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                                `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                   `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxDeleteResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                   `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxDeleteResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxDeleteResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxDeleteResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxDeleteResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxDeleteResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -621,7 +380,7 @@ func (r *MailboxCapacityResponseData) UnmarshalJSON(data []byte) error {
 }
 
 type MailboxDisconnectResponse struct {
-	Data MailboxDisconnectResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -633,73 +392,6 @@ type MailboxDisconnectResponse struct {
 // Returns the unmodified JSON received from the API
 func (r MailboxDisconnectResponse) RawJSON() string { return r.JSON.raw }
 func (r *MailboxDisconnectResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxDisconnectResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                       `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                         `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                                    `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                       `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                                    `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                                    `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                       `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxDisconnectResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                       `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxDisconnectResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxDisconnectResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxDisconnectResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxDisconnectResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxDisconnectResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -748,7 +440,7 @@ func (r *MailboxOtpResponseData) UnmarshalJSON(data []byte) error {
 }
 
 type MailboxRestartResponse struct {
-	Data MailboxRestartResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -763,75 +455,8 @@ func (r *MailboxRestartResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type MailboxRestartResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                    `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                      `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                                 `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                    `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                                 `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                                 `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                    `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxRestartResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                    `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxRestartResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxRestartResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxRestartResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxRestartResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxRestartResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type MailboxUncancelResponse struct {
-	Data MailboxUncancelResponseData `json:"data" api:"required"`
+	Data Mailbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -843,73 +468,6 @@ type MailboxUncancelResponse struct {
 // Returns the unmodified JSON received from the API
 func (r MailboxUncancelResponse) RawJSON() string { return r.JSON.raw }
 func (r *MailboxUncancelResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxUncancelResponseData struct {
-	ID      string `json:"id" api:"required" format:"uuid"`
-	Address string `json:"address" api:"required"`
-	// Any of "rent", "included", "domain", "external".
-	BillingMode       string                                     `json:"billingMode" api:"required"`
-	CancelAtPeriodEnd bool                                       `json:"cancelAtPeriodEnd" api:"required"`
-	CheckoutExpiresAt time.Time                                  `json:"checkoutExpiresAt" api:"required" format:"date-time"`
-	CheckoutURL       string                                     `json:"checkoutUrl" api:"required"`
-	CreatedAt         time.Time                                  `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd  time.Time                                  `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	DomainID          string                                     `json:"domainId" api:"required" format:"uuid"`
-	InboundMessages   MailboxUncancelResponseDataInboundMessages `json:"inboundMessages" api:"required"`
-	Label             string                                     `json:"label" api:"required"`
-	// Any of "matix", "gmail".
-	Provider string `json:"provider" api:"required"`
-	// Any of "provisioning", "awaiting_payment", "active", "cancel_scheduled",
-	// "archived", "billing_error", "pending_connection", "connection_expired",
-	// "connection_removed".
-	Status string `json:"status" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Address           respjson.Field
-		BillingMode       respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		CheckoutExpiresAt respjson.Field
-		CheckoutURL       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DomainID          respjson.Field
-		InboundMessages   respjson.Field
-		Label             respjson.Field
-		Provider          respjson.Field
-		Status            respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxUncancelResponseData) RawJSON() string { return r.JSON.raw }
-func (r *MailboxUncancelResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type MailboxUncancelResponseDataInboundMessages struct {
-	Exhausted bool      `json:"exhausted" api:"required"`
-	Included  int64     `json:"included" api:"required"`
-	ResetsAt  time.Time `json:"resetsAt" api:"required" format:"date-time"`
-	Used      int64     `json:"used" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Exhausted   respjson.Field
-		Included    respjson.Field
-		ResetsAt    respjson.Field
-		Used        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r MailboxUncancelResponseDataInboundMessages) RawJSON() string { return r.JSON.raw }
-func (r *MailboxUncancelResponseDataInboundMessages) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

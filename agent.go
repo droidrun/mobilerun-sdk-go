@@ -74,9 +74,247 @@ func (r *AgentService) ModelProfiles(ctx context.Context, opts ...option.Request
 	return res, err
 }
 
+// An Agent of the owner: its lifecycle state, profile and runtime.
+type Agent struct {
+	ID         string `json:"id" api:"required" format:"uuid"`
+	ArchivedAt string `json:"archivedAt" api:"required"`
+	CreatedAt  string `json:"createdAt" api:"required"`
+	// Why a `disabled` Agent is disabled: `owner` chose it, `over-limit` the plan
+	// grants fewer Agent slots than the owner had enabled. Null while the Agent is not
+	// disabled.
+	//
+	// Any of "owner", "over-limit".
+	DisabledReason AgentDisabledReason `json:"disabledReason" api:"required"`
+	// Why provisioning failed, null otherwise. An open set: new codes can appear.
+	// Codes written today: `provision_timeout`, `agent_limit_reached`,
+	// `provision_failed`; a code the harness reports for a failed start is passed
+	// through.
+	ErrorCode string `json:"errorCode" api:"required"`
+	// Whether this is the owner's primary Agent, the one a chat session uses when it
+	// names no `agentId`.
+	Primary bool `json:"primary" api:"required"`
+	// Persona of the Agent plus its individual instructions passage; `instructions` is
+	// null when none is set.
+	Profile AgentProfile `json:"profile" api:"required"`
+	// When provisioning of the Agent completed (ISO 8601); null while a newly created
+	// Agent is still pending and after its provisioning failed.
+	ProvisionedAt string `json:"provisionedAt" api:"required"`
+	// `pending`: created but not provisioned yet, it takes no turns. `active`: ready
+	// for turns. `failed`: provisioning gave up (see `errorCode`); the Agent is
+	// archived. `archived`: read-only. `disabled`: switched off by the owner or
+	// because the plan grants fewer Agent slots; it takes no turns and holds no slot,
+	// and the owner can enable it again while a slot is free.
+	//
+	// Any of "active", "pending", "failed", "archived", "disabled".
+	Status AgentStatus `json:"status" api:"required"`
+	// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
+	// 20 newest rows. Null when the thread has no rows.
+	ThreadPreview AgentThreadPreview `json:"threadPreview" api:"required"`
+	// Active chat on the active machine, pinned first, then session lastActiveAt DESC,
+	// id DESC. Null for pending/archived Agents or no thread.
+	ThreadSessionID string `json:"threadSessionId" api:"required" format:"uuid"`
+	// Whether this active primary Agent is still due its one-time greeting: the
+	// welcome-back for an adopted primary, or the onboarding greeting for a primary
+	// whose chat never had a message.
+	WelcomePending bool `json:"welcomePending" api:"required"`
+	// Latest activity of the Agent (newest chat session activity or live turn
+	// heartbeat), ISO 8601; null when it has never been active.
+	LastActiveAt string `json:"lastActiveAt" api:"nullable"`
+	// Whether the Agent is running right now, derived from stored state only.
+	// `waking`: an active start, its machine is provisioning or a restart/rehydrate is
+	// pending and changed within the last 10 minutes (a timed-out or stalled start
+	// reads `sleeping`). `awake`: the machine is running and this Agent has been
+	// started in the current run. `sleeping`: everything else (stopped or parked
+	// machine, an Agent the running harness has not started yet, or an Agent that is
+	// not active). `awake` can lag a machine stop until the reconciler converges.
+	//
+	// Any of "awake", "sleeping", "waking".
+	Runtime AgentRuntime `json:"runtime" api:"nullable"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID              respjson.Field
+		ArchivedAt      respjson.Field
+		CreatedAt       respjson.Field
+		DisabledReason  respjson.Field
+		ErrorCode       respjson.Field
+		Primary         respjson.Field
+		Profile         respjson.Field
+		ProvisionedAt   respjson.Field
+		Status          respjson.Field
+		ThreadPreview   respjson.Field
+		ThreadSessionID respjson.Field
+		WelcomePending  respjson.Field
+		LastActiveAt    respjson.Field
+		Runtime         respjson.Field
+		ExtraFields     map[string]respjson.Field
+		raw             string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r Agent) RawJSON() string { return r.JSON.raw }
+func (r *Agent) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Why a `disabled` Agent is disabled: `owner` chose it, `over-limit` the plan
+// grants fewer Agent slots than the owner had enabled. Null while the Agent is not
+// disabled.
+type AgentDisabledReason string
+
+const (
+	AgentDisabledReasonOwner     AgentDisabledReason = "owner"
+	AgentDisabledReasonOverLimit AgentDisabledReason = "over-limit"
+)
+
+// `pending`: created but not provisioned yet, it takes no turns. `active`: ready
+// for turns. `failed`: provisioning gave up (see `errorCode`); the Agent is
+// archived. `archived`: read-only. `disabled`: switched off by the owner or
+// because the plan grants fewer Agent slots; it takes no turns and holds no slot,
+// and the owner can enable it again while a slot is free.
+type AgentStatus string
+
+const (
+	AgentStatusActive   AgentStatus = "active"
+	AgentStatusPending  AgentStatus = "pending"
+	AgentStatusFailed   AgentStatus = "failed"
+	AgentStatusArchived AgentStatus = "archived"
+	AgentStatusDisabled AgentStatus = "disabled"
+)
+
+// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
+// 20 newest rows. Null when the thread has no rows.
+type AgentThreadPreview struct {
+	AwaitsInput bool      `json:"awaitsInput" api:"required"`
+	Excerpt     string    `json:"excerpt" api:"required"`
+	Timestamp   time.Time `json:"timestamp" api:"required" format:"date-time"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		AwaitsInput respjson.Field
+		Excerpt     respjson.Field
+		Timestamp   respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AgentThreadPreview) RawJSON() string { return r.JSON.raw }
+func (r *AgentThreadPreview) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Whether the Agent is running right now, derived from stored state only.
+// `waking`: an active start, its machine is provisioning or a restart/rehydrate is
+// pending and changed within the last 10 minutes (a timed-out or stalled start
+// reads `sleeping`). `awake`: the machine is running and this Agent has been
+// started in the current run. `sleeping`: everything else (stopped or parked
+// machine, an Agent the running harness has not started yet, or an Agent that is
+// not active). `awake` can lag a machine stop until the reconciler converges.
+type AgentRuntime string
+
+const (
+	AgentRuntimeAwake    AgentRuntime = "awake"
+	AgentRuntimeSleeping AgentRuntime = "sleeping"
+	AgentRuntimeWaking   AgentRuntime = "waking"
+)
+
+// Persona of the Agent plus its individual instructions passage; `instructions` is
+// null when none is set.
+type AgentProfile struct {
+	// Configuration of a `blob` avatar: its seed and optional user-chosen palette
+	// color. A color-only config retains the default seed fallback.
+	AvatarConfig AgentProfileAvatarConfig `json:"avatarConfig" api:"required"`
+	// Any of "blob".
+	AvatarKind   AgentProfileAvatarKind `json:"avatarKind" api:"required"`
+	DisplayName  string                 `json:"displayName" api:"required"`
+	Instructions string                 `json:"instructions" api:"required"`
+	ModelProfile string                 `json:"modelProfile" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		AvatarConfig respjson.Field
+		AvatarKind   respjson.Field
+		DisplayName  respjson.Field
+		Instructions respjson.Field
+		ModelProfile respjson.Field
+		ExtraFields  map[string]respjson.Field
+		raw          string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AgentProfile) RawJSON() string { return r.JSON.raw }
+func (r *AgentProfile) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Configuration of a `blob` avatar: its seed and optional user-chosen palette
+// color. A color-only config retains the default seed fallback.
+type AgentProfileAvatarConfig struct {
+	// Any of "slate", "red", "orange", "amber", "lime", "green", "teal", "cyan",
+	// "blue", "indigo", "violet", "pink".
+	Color string                            `json:"color"`
+	Seed  AgentProfileAvatarConfigSeedUnion `json:"seed"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Color       respjson.Field
+		Seed        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AgentProfileAvatarConfig) RawJSON() string { return r.JSON.raw }
+func (r *AgentProfileAvatarConfig) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// AgentProfileAvatarConfigSeedUnion contains all possible properties and values
+// from [string], [int64].
+//
+// Use the methods beginning with 'As' to cast the union to one of its variants.
+//
+// If the underlying value is not a json object, one of the following properties
+// will be valid: OfString OfInt]
+type AgentProfileAvatarConfigSeedUnion struct {
+	// This field will be present if the value is a [string] instead of an object.
+	OfString string `json:",inline"`
+	// This field will be present if the value is a [int64] instead of an object.
+	OfInt int64 `json:",inline"`
+	JSON  struct {
+		OfString respjson.Field
+		OfInt    respjson.Field
+		raw      string
+	} `json:"-"`
+}
+
+func (u AgentProfileAvatarConfigSeedUnion) AsString() (v string) {
+	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
+	return
+}
+
+func (u AgentProfileAvatarConfigSeedUnion) AsInt() (v int64) {
+	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
+	return
+}
+
+// Returns the unmodified JSON received from the API
+func (u AgentProfileAvatarConfigSeedUnion) RawJSON() string { return u.JSON.raw }
+
+func (r *AgentProfileAvatarConfigSeedUnion) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type AgentProfileAvatarKind string
+
+const (
+	AgentProfileAvatarKindBlob AgentProfileAvatarKind = "blob"
+)
+
 type AgentNewResponse struct {
 	// An Agent of the owner: its lifecycle state, profile and runtime.
-	Agent AgentNewResponseAgent `json:"agent" api:"required"`
+	Agent Agent `json:"agent" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Agent       respjson.Field
@@ -91,200 +329,8 @@ func (r *AgentNewResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-// An Agent of the owner: its lifecycle state, profile and runtime.
-type AgentNewResponseAgent struct {
-	ID         string `json:"id" api:"required" format:"uuid"`
-	ArchivedAt string `json:"archivedAt" api:"required"`
-	CreatedAt  string `json:"createdAt" api:"required"`
-	// Why a `disabled` Agent is disabled: `owner` chose it, `over-limit` the plan
-	// grants fewer Agent slots than the owner had enabled. Null while the Agent is not
-	// disabled.
-	//
-	// Any of "owner", "over-limit".
-	DisabledReason string `json:"disabledReason" api:"required"`
-	// Why provisioning failed, null otherwise. An open set: new codes can appear.
-	// Codes written today: `provision_timeout`, `agent_limit_reached`,
-	// `provision_failed`; a code the harness reports for a failed start is passed
-	// through.
-	ErrorCode string `json:"errorCode" api:"required"`
-	// Whether this is the owner's primary Agent, the one a chat session uses when it
-	// names no `agentId`.
-	Primary bool `json:"primary" api:"required"`
-	// Persona of the Agent plus its individual instructions passage; `instructions` is
-	// null when none is set.
-	Profile AgentNewResponseAgentProfile `json:"profile" api:"required"`
-	// When provisioning of the Agent completed (ISO 8601); null while a newly created
-	// Agent is still pending and after its provisioning failed.
-	ProvisionedAt string `json:"provisionedAt" api:"required"`
-	// `pending`: created but not provisioned yet, it takes no turns. `active`: ready
-	// for turns. `failed`: provisioning gave up (see `errorCode`); the Agent is
-	// archived. `archived`: read-only. `disabled`: switched off by the owner or
-	// because the plan grants fewer Agent slots; it takes no turns and holds no slot,
-	// and the owner can enable it again while a slot is free.
-	//
-	// Any of "active", "pending", "failed", "archived", "disabled".
-	Status string `json:"status" api:"required"`
-	// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
-	// 20 newest rows. Null when the thread has no rows.
-	ThreadPreview AgentNewResponseAgentThreadPreview `json:"threadPreview" api:"required"`
-	// Active chat on the active machine, pinned first, then session lastActiveAt DESC,
-	// id DESC. Null for pending/archived Agents or no thread.
-	ThreadSessionID string `json:"threadSessionId" api:"required" format:"uuid"`
-	// Whether this active primary Agent is still due its one-time greeting: the
-	// welcome-back for an adopted primary, or the onboarding greeting for a primary
-	// whose chat never had a message.
-	WelcomePending bool `json:"welcomePending" api:"required"`
-	// Latest activity of the Agent (newest chat session activity or live turn
-	// heartbeat), ISO 8601; null when it has never been active.
-	LastActiveAt string `json:"lastActiveAt" api:"nullable"`
-	// Whether the Agent is running right now, derived from stored state only.
-	// `waking`: an active start, its machine is provisioning or a restart/rehydrate is
-	// pending and changed within the last 10 minutes (a timed-out or stalled start
-	// reads `sleeping`). `awake`: the machine is running and this Agent has been
-	// started in the current run. `sleeping`: everything else (stopped or parked
-	// machine, an Agent the running harness has not started yet, or an Agent that is
-	// not active). `awake` can lag a machine stop until the reconciler converges.
-	//
-	// Any of "awake", "sleeping", "waking".
-	Runtime string `json:"runtime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		ArchivedAt      respjson.Field
-		CreatedAt       respjson.Field
-		DisabledReason  respjson.Field
-		ErrorCode       respjson.Field
-		Primary         respjson.Field
-		Profile         respjson.Field
-		ProvisionedAt   respjson.Field
-		Status          respjson.Field
-		ThreadPreview   respjson.Field
-		ThreadSessionID respjson.Field
-		WelcomePending  respjson.Field
-		LastActiveAt    respjson.Field
-		Runtime         respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentNewResponseAgent) RawJSON() string { return r.JSON.raw }
-func (r *AgentNewResponseAgent) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Persona of the Agent plus its individual instructions passage; `instructions` is
-// null when none is set.
-type AgentNewResponseAgentProfile struct {
-	// Configuration of a `blob` avatar: its seed and optional user-chosen palette
-	// color. A color-only config retains the default seed fallback.
-	AvatarConfig AgentNewResponseAgentProfileAvatarConfig `json:"avatarConfig" api:"required"`
-	// Any of "blob".
-	AvatarKind   string `json:"avatarKind" api:"required"`
-	DisplayName  string `json:"displayName" api:"required"`
-	Instructions string `json:"instructions" api:"required"`
-	ModelProfile string `json:"modelProfile" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AvatarConfig respjson.Field
-		AvatarKind   respjson.Field
-		DisplayName  respjson.Field
-		Instructions respjson.Field
-		ModelProfile respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentNewResponseAgentProfile) RawJSON() string { return r.JSON.raw }
-func (r *AgentNewResponseAgentProfile) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Configuration of a `blob` avatar: its seed and optional user-chosen palette
-// color. A color-only config retains the default seed fallback.
-type AgentNewResponseAgentProfileAvatarConfig struct {
-	// Any of "slate", "red", "orange", "amber", "lime", "green", "teal", "cyan",
-	// "blue", "indigo", "violet", "pink".
-	Color string                                            `json:"color"`
-	Seed  AgentNewResponseAgentProfileAvatarConfigSeedUnion `json:"seed"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Color       respjson.Field
-		Seed        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentNewResponseAgentProfileAvatarConfig) RawJSON() string { return r.JSON.raw }
-func (r *AgentNewResponseAgentProfileAvatarConfig) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// AgentNewResponseAgentProfileAvatarConfigSeedUnion contains all possible
-// properties and values from [string], [int64].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-//
-// If the underlying value is not a json object, one of the following properties
-// will be valid: OfString OfInt]
-type AgentNewResponseAgentProfileAvatarConfigSeedUnion struct {
-	// This field will be present if the value is a [string] instead of an object.
-	OfString string `json:",inline"`
-	// This field will be present if the value is a [int64] instead of an object.
-	OfInt int64 `json:",inline"`
-	JSON  struct {
-		OfString respjson.Field
-		OfInt    respjson.Field
-		raw      string
-	} `json:"-"`
-}
-
-func (u AgentNewResponseAgentProfileAvatarConfigSeedUnion) AsString() (v string) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u AgentNewResponseAgentProfileAvatarConfigSeedUnion) AsInt() (v int64) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u AgentNewResponseAgentProfileAvatarConfigSeedUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *AgentNewResponseAgentProfileAvatarConfigSeedUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
-// 20 newest rows. Null when the thread has no rows.
-type AgentNewResponseAgentThreadPreview struct {
-	AwaitsInput bool      `json:"awaitsInput" api:"required"`
-	Excerpt     string    `json:"excerpt" api:"required"`
-	Timestamp   time.Time `json:"timestamp" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AwaitsInput respjson.Field
-		Excerpt     respjson.Field
-		Timestamp   respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentNewResponseAgentThreadPreview) RawJSON() string { return r.JSON.raw }
-func (r *AgentNewResponseAgentThreadPreview) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type AgentListResponse struct {
-	Agents []AgentListResponseAgent `json:"agents" api:"required"`
+	Agents []Agent `json:"agents" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Agents      respjson.Field
@@ -296,198 +342,6 @@ type AgentListResponse struct {
 // Returns the unmodified JSON received from the API
 func (r AgentListResponse) RawJSON() string { return r.JSON.raw }
 func (r *AgentListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// An Agent of the owner: its lifecycle state, profile and runtime.
-type AgentListResponseAgent struct {
-	ID         string `json:"id" api:"required" format:"uuid"`
-	ArchivedAt string `json:"archivedAt" api:"required"`
-	CreatedAt  string `json:"createdAt" api:"required"`
-	// Why a `disabled` Agent is disabled: `owner` chose it, `over-limit` the plan
-	// grants fewer Agent slots than the owner had enabled. Null while the Agent is not
-	// disabled.
-	//
-	// Any of "owner", "over-limit".
-	DisabledReason string `json:"disabledReason" api:"required"`
-	// Why provisioning failed, null otherwise. An open set: new codes can appear.
-	// Codes written today: `provision_timeout`, `agent_limit_reached`,
-	// `provision_failed`; a code the harness reports for a failed start is passed
-	// through.
-	ErrorCode string `json:"errorCode" api:"required"`
-	// Whether this is the owner's primary Agent, the one a chat session uses when it
-	// names no `agentId`.
-	Primary bool `json:"primary" api:"required"`
-	// Persona of the Agent plus its individual instructions passage; `instructions` is
-	// null when none is set.
-	Profile AgentListResponseAgentProfile `json:"profile" api:"required"`
-	// When provisioning of the Agent completed (ISO 8601); null while a newly created
-	// Agent is still pending and after its provisioning failed.
-	ProvisionedAt string `json:"provisionedAt" api:"required"`
-	// `pending`: created but not provisioned yet, it takes no turns. `active`: ready
-	// for turns. `failed`: provisioning gave up (see `errorCode`); the Agent is
-	// archived. `archived`: read-only. `disabled`: switched off by the owner or
-	// because the plan grants fewer Agent slots; it takes no turns and holds no slot,
-	// and the owner can enable it again while a slot is free.
-	//
-	// Any of "active", "pending", "failed", "archived", "disabled".
-	Status string `json:"status" api:"required"`
-	// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
-	// 20 newest rows. Null when the thread has no rows.
-	ThreadPreview AgentListResponseAgentThreadPreview `json:"threadPreview" api:"required"`
-	// Active chat on the active machine, pinned first, then session lastActiveAt DESC,
-	// id DESC. Null for pending/archived Agents or no thread.
-	ThreadSessionID string `json:"threadSessionId" api:"required" format:"uuid"`
-	// Whether this active primary Agent is still due its one-time greeting: the
-	// welcome-back for an adopted primary, or the onboarding greeting for a primary
-	// whose chat never had a message.
-	WelcomePending bool `json:"welcomePending" api:"required"`
-	// Latest activity of the Agent (newest chat session activity or live turn
-	// heartbeat), ISO 8601; null when it has never been active.
-	LastActiveAt string `json:"lastActiveAt" api:"nullable"`
-	// Whether the Agent is running right now, derived from stored state only.
-	// `waking`: an active start, its machine is provisioning or a restart/rehydrate is
-	// pending and changed within the last 10 minutes (a timed-out or stalled start
-	// reads `sleeping`). `awake`: the machine is running and this Agent has been
-	// started in the current run. `sleeping`: everything else (stopped or parked
-	// machine, an Agent the running harness has not started yet, or an Agent that is
-	// not active). `awake` can lag a machine stop until the reconciler converges.
-	//
-	// Any of "awake", "sleeping", "waking".
-	Runtime string `json:"runtime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		ArchivedAt      respjson.Field
-		CreatedAt       respjson.Field
-		DisabledReason  respjson.Field
-		ErrorCode       respjson.Field
-		Primary         respjson.Field
-		Profile         respjson.Field
-		ProvisionedAt   respjson.Field
-		Status          respjson.Field
-		ThreadPreview   respjson.Field
-		ThreadSessionID respjson.Field
-		WelcomePending  respjson.Field
-		LastActiveAt    respjson.Field
-		Runtime         respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentListResponseAgent) RawJSON() string { return r.JSON.raw }
-func (r *AgentListResponseAgent) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Persona of the Agent plus its individual instructions passage; `instructions` is
-// null when none is set.
-type AgentListResponseAgentProfile struct {
-	// Configuration of a `blob` avatar: its seed and optional user-chosen palette
-	// color. A color-only config retains the default seed fallback.
-	AvatarConfig AgentListResponseAgentProfileAvatarConfig `json:"avatarConfig" api:"required"`
-	// Any of "blob".
-	AvatarKind   string `json:"avatarKind" api:"required"`
-	DisplayName  string `json:"displayName" api:"required"`
-	Instructions string `json:"instructions" api:"required"`
-	ModelProfile string `json:"modelProfile" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AvatarConfig respjson.Field
-		AvatarKind   respjson.Field
-		DisplayName  respjson.Field
-		Instructions respjson.Field
-		ModelProfile respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentListResponseAgentProfile) RawJSON() string { return r.JSON.raw }
-func (r *AgentListResponseAgentProfile) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Configuration of a `blob` avatar: its seed and optional user-chosen palette
-// color. A color-only config retains the default seed fallback.
-type AgentListResponseAgentProfileAvatarConfig struct {
-	// Any of "slate", "red", "orange", "amber", "lime", "green", "teal", "cyan",
-	// "blue", "indigo", "violet", "pink".
-	Color string                                             `json:"color"`
-	Seed  AgentListResponseAgentProfileAvatarConfigSeedUnion `json:"seed"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Color       respjson.Field
-		Seed        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentListResponseAgentProfileAvatarConfig) RawJSON() string { return r.JSON.raw }
-func (r *AgentListResponseAgentProfileAvatarConfig) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// AgentListResponseAgentProfileAvatarConfigSeedUnion contains all possible
-// properties and values from [string], [int64].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-//
-// If the underlying value is not a json object, one of the following properties
-// will be valid: OfString OfInt]
-type AgentListResponseAgentProfileAvatarConfigSeedUnion struct {
-	// This field will be present if the value is a [string] instead of an object.
-	OfString string `json:",inline"`
-	// This field will be present if the value is a [int64] instead of an object.
-	OfInt int64 `json:",inline"`
-	JSON  struct {
-		OfString respjson.Field
-		OfInt    respjson.Field
-		raw      string
-	} `json:"-"`
-}
-
-func (u AgentListResponseAgentProfileAvatarConfigSeedUnion) AsString() (v string) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u AgentListResponseAgentProfileAvatarConfigSeedUnion) AsInt() (v int64) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u AgentListResponseAgentProfileAvatarConfigSeedUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *AgentListResponseAgentProfileAvatarConfigSeedUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Newest thread excerpt (90 characters), awaits-input and timestamp, from at most
-// 20 newest rows. Null when the thread has no rows.
-type AgentListResponseAgentThreadPreview struct {
-	AwaitsInput bool      `json:"awaitsInput" api:"required"`
-	Excerpt     string    `json:"excerpt" api:"required"`
-	Timestamp   time.Time `json:"timestamp" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AwaitsInput respjson.Field
-		Excerpt     respjson.Field
-		Timestamp   respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentListResponseAgentThreadPreview) RawJSON() string { return r.JSON.raw }
-func (r *AgentListResponseAgentThreadPreview) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
