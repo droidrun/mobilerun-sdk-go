@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // DeviceTrafficSessionService contains methods and other services that help with
@@ -69,15 +69,30 @@ func (r *DeviceTrafficSessionService) Get(ctx context.Context, sessionID string,
 }
 
 // List device traffic sessions
-func (r *DeviceTrafficSessionService) List(ctx context.Context, deviceID string, query DeviceTrafficSessionListParams, opts ...option.RequestOption) (res *DeviceTrafficSessionListResponse, err error) {
+func (r *DeviceTrafficSessionService) List(ctx context.Context, deviceID string, query DeviceTrafficSessionListParams, opts ...option.RequestOption) (res *pagination.Page[DeviceTrafficSessionListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if deviceID == "" {
 		err = errors.New("missing required deviceId parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("devices/%s/traffic/sessions", url.PathEscape(deviceID))
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// List device traffic sessions
+func (r *DeviceTrafficSessionService) ListAutoPaging(ctx context.Context, deviceID string, query DeviceTrafficSessionListParams, opts ...option.RequestOption) *pagination.PageAutoPager[DeviceTrafficSessionListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, deviceID, query, opts...))
 }
 
 // Stop device traffic inspection
@@ -96,6 +111,26 @@ func (r *DeviceTrafficSessionService) Delete(ctx context.Context, sessionID stri
 	return res, err
 }
 
+type StreamCredentials struct {
+	Token    string `json:"token" api:"required"`
+	Protocol string `json:"protocol" api:"required"`
+	URL      string `json:"url" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Token       respjson.Field
+		Protocol    respjson.Field
+		URL         respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r StreamCredentials) RawJSON() string { return r.JSON.raw }
+func (r *StreamCredentials) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type DeviceTrafficSessionNewResponse struct {
 	ID           string    `json:"id" api:"required"`
 	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
@@ -107,11 +142,11 @@ type DeviceTrafficSessionNewResponse struct {
 	// Any of "starting", "active", "stopping", "stopped", "failed", "expired".
 	State DeviceTrafficSessionNewResponseState `json:"state" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema    string                                `json:"$schema" format:"uri"`
-	Error     DeviceTrafficSessionNewResponseError  `json:"error"`
-	StartedAt time.Time                             `json:"startedAt" format:"date-time"`
-	StoppedAt time.Time                             `json:"stoppedAt" format:"date-time"`
-	Stream    DeviceTrafficSessionNewResponseStream `json:"stream"`
+	Schema    string                               `json:"$schema" format:"uri"`
+	Error     DeviceTrafficSessionNewResponseError `json:"error"`
+	StartedAt time.Time                            `json:"startedAt" format:"date-time"`
+	StoppedAt time.Time                            `json:"stoppedAt" format:"date-time"`
+	Stream    StreamCredentials                    `json:"stream"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID           respjson.Field
@@ -172,26 +207,6 @@ func (r *DeviceTrafficSessionNewResponseError) UnmarshalJSON(data []byte) error 
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceTrafficSessionNewResponseStream struct {
-	Token    string `json:"token" api:"required"`
-	Protocol string `json:"protocol" api:"required"`
-	URL      string `json:"url" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Token       respjson.Field
-		Protocol    respjson.Field
-		URL         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionNewResponseStream) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionNewResponseStream) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceTrafficSessionGetResponse struct {
 	ID           string    `json:"id" api:"required"`
 	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
@@ -203,11 +218,11 @@ type DeviceTrafficSessionGetResponse struct {
 	// Any of "starting", "active", "stopping", "stopped", "failed", "expired".
 	State DeviceTrafficSessionGetResponseState `json:"state" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema    string                                `json:"$schema" format:"uri"`
-	Error     DeviceTrafficSessionGetResponseError  `json:"error"`
-	StartedAt time.Time                             `json:"startedAt" format:"date-time"`
-	StoppedAt time.Time                             `json:"stoppedAt" format:"date-time"`
-	Stream    DeviceTrafficSessionGetResponseStream `json:"stream"`
+	Schema    string                               `json:"$schema" format:"uri"`
+	Error     DeviceTrafficSessionGetResponseError `json:"error"`
+	StartedAt time.Time                            `json:"startedAt" format:"date-time"`
+	StoppedAt time.Time                            `json:"stoppedAt" format:"date-time"`
+	Stream    StreamCredentials                    `json:"stream"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID           respjson.Field
@@ -268,63 +283,22 @@ func (r *DeviceTrafficSessionGetResponseError) UnmarshalJSON(data []byte) error 
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceTrafficSessionGetResponseStream struct {
-	Token    string `json:"token" api:"required"`
-	Protocol string `json:"protocol" api:"required"`
-	URL      string `json:"url" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Token       respjson.Field
-		Protocol    respjson.Field
-		URL         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionGetResponseStream) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionGetResponseStream) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceTrafficSessionListResponse struct {
-	Items      []DeviceTrafficSessionListResponseItem `json:"items" api:"required"`
-	Pagination shared.Meta                            `json:"pagination" api:"required"`
-	// A URL to the JSON Schema for this object.
-	Schema string `json:"$schema" format:"uri"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		Schema      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionListResponse) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceTrafficSessionListResponseItem struct {
 	ID           string    `json:"id" api:"required"`
 	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
 	DeviceID     string    `json:"deviceId" api:"required"`
 	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
 	MaxBodyBytes int64     `json:"maxBodyBytes" api:"required"`
 	// Any of "none".
-	Retention string `json:"retention" api:"required"`
+	Retention DeviceTrafficSessionListResponseRetention `json:"retention" api:"required"`
 	// Any of "starting", "active", "stopping", "stopped", "failed", "expired".
-	State string `json:"state" api:"required"`
+	State DeviceTrafficSessionListResponseState `json:"state" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema    string                                     `json:"$schema" format:"uri"`
-	Error     DeviceTrafficSessionListResponseItemError  `json:"error"`
-	StartedAt time.Time                                  `json:"startedAt" format:"date-time"`
-	StoppedAt time.Time                                  `json:"stoppedAt" format:"date-time"`
-	Stream    DeviceTrafficSessionListResponseItemStream `json:"stream"`
+	Schema    string                                `json:"$schema" format:"uri"`
+	Error     DeviceTrafficSessionListResponseError `json:"error"`
+	StartedAt time.Time                             `json:"startedAt" format:"date-time"`
+	StoppedAt time.Time                             `json:"stoppedAt" format:"date-time"`
+	Stream    StreamCredentials                     `json:"stream"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID           respjson.Field
@@ -345,12 +319,29 @@ type DeviceTrafficSessionListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionListResponseItem) UnmarshalJSON(data []byte) error {
+func (r DeviceTrafficSessionListResponse) RawJSON() string { return r.JSON.raw }
+func (r *DeviceTrafficSessionListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceTrafficSessionListResponseItemError struct {
+type DeviceTrafficSessionListResponseRetention string
+
+const (
+	DeviceTrafficSessionListResponseRetentionNone DeviceTrafficSessionListResponseRetention = "none"
+)
+
+type DeviceTrafficSessionListResponseState string
+
+const (
+	DeviceTrafficSessionListResponseStateStarting DeviceTrafficSessionListResponseState = "starting"
+	DeviceTrafficSessionListResponseStateActive   DeviceTrafficSessionListResponseState = "active"
+	DeviceTrafficSessionListResponseStateStopping DeviceTrafficSessionListResponseState = "stopping"
+	DeviceTrafficSessionListResponseStateStopped  DeviceTrafficSessionListResponseState = "stopped"
+	DeviceTrafficSessionListResponseStateFailed   DeviceTrafficSessionListResponseState = "failed"
+	DeviceTrafficSessionListResponseStateExpired  DeviceTrafficSessionListResponseState = "expired"
+)
+
+type DeviceTrafficSessionListResponseError struct {
 	Code    string `json:"code" api:"required"`
 	Message string `json:"message" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -363,28 +354,8 @@ type DeviceTrafficSessionListResponseItemError struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionListResponseItemError) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionListResponseItemError) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceTrafficSessionListResponseItemStream struct {
-	Token    string `json:"token" api:"required"`
-	Protocol string `json:"protocol" api:"required"`
-	URL      string `json:"url" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Token       respjson.Field
-		Protocol    respjson.Field
-		URL         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionListResponseItemStream) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionListResponseItemStream) UnmarshalJSON(data []byte) error {
+func (r DeviceTrafficSessionListResponseError) RawJSON() string { return r.JSON.raw }
+func (r *DeviceTrafficSessionListResponseError) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -399,11 +370,11 @@ type DeviceTrafficSessionDeleteResponse struct {
 	// Any of "starting", "active", "stopping", "stopped", "failed", "expired".
 	State DeviceTrafficSessionDeleteResponseState `json:"state" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema    string                                   `json:"$schema" format:"uri"`
-	Error     DeviceTrafficSessionDeleteResponseError  `json:"error"`
-	StartedAt time.Time                                `json:"startedAt" format:"date-time"`
-	StoppedAt time.Time                                `json:"stoppedAt" format:"date-time"`
-	Stream    DeviceTrafficSessionDeleteResponseStream `json:"stream"`
+	Schema    string                                  `json:"$schema" format:"uri"`
+	Error     DeviceTrafficSessionDeleteResponseError `json:"error"`
+	StartedAt time.Time                               `json:"startedAt" format:"date-time"`
+	StoppedAt time.Time                               `json:"stoppedAt" format:"date-time"`
+	Stream    StreamCredentials                       `json:"stream"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID           respjson.Field
@@ -461,26 +432,6 @@ type DeviceTrafficSessionDeleteResponseError struct {
 // Returns the unmodified JSON received from the API
 func (r DeviceTrafficSessionDeleteResponseError) RawJSON() string { return r.JSON.raw }
 func (r *DeviceTrafficSessionDeleteResponseError) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceTrafficSessionDeleteResponseStream struct {
-	Token    string `json:"token" api:"required"`
-	Protocol string `json:"protocol" api:"required"`
-	URL      string `json:"url" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Token       respjson.Field
-		Protocol    respjson.Field
-		URL         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTrafficSessionDeleteResponseStream) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTrafficSessionDeleteResponseStream) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

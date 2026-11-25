@@ -9,15 +9,14 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"time"
 
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apijson"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WorkflowTriggerService contains methods and other services that help with
@@ -92,11 +91,27 @@ func (r *WorkflowTriggerService) Update(ctx context.Context, triggerID string, b
 
 // Return a paginated list of triggers. Supports filtering by `activation` and
 // `eventType`, free-text `search`, and ordering by name, createdAt, or updatedAt.
-func (r *WorkflowTriggerService) List(ctx context.Context, query WorkflowTriggerListParams, opts ...option.RequestOption) (res *WorkflowTriggerListResponse, err error) {
+func (r *WorkflowTriggerService) List(ctx context.Context, query WorkflowTriggerListParams, opts ...option.RequestOption) (res *pagination.Page[Trigger], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "triggers"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Return a paginated list of triggers. Supports filtering by `activation` and
+// `eventType`, free-text `search`, and ordering by name, createdAt, or updatedAt.
+func (r *WorkflowTriggerService) ListAutoPaging(ctx context.Context, query WorkflowTriggerListParams, opts ...option.RequestOption) *pagination.PageAutoPager[Trigger] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Delete a trigger by its ID. Returns 404 if no trigger matches.
@@ -148,7 +163,7 @@ func (r *WorkflowTriggerService) Fire(ctx context.Context, triggerID string, bod
 }
 
 type WorkflowTriggerNewResponse struct {
-	Data WorkflowTriggerNewResponseData `json:"data" api:"required"`
+	Data Trigger `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -163,106 +178,8 @@ func (r *WorkflowTriggerNewResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowTriggerNewResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "event", "schedule", "custom".
-	Activation          string                                     `json:"activation" api:"required"`
-	CreatedAt           time.Time                                  `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy           string                                     `json:"createdBy" api:"required" format:"uuid"`
-	CustomPayloadSchema map[string]any                             `json:"customPayloadSchema" api:"required"`
-	Description         string                                     `json:"description" api:"required"`
-	EventType           string                                     `json:"eventType" api:"required"`
-	Name                string                                     `json:"name" api:"required"`
-	OwnerID             string                                     `json:"ownerId" api:"required" format:"uuid"`
-	Payload             map[string]any                             `json:"payload" api:"required"`
-	ScheduleRule        WorkflowTriggerNewResponseDataScheduleRule `json:"scheduleRule" api:"required"`
-	Timezone            string                                     `json:"timezone" api:"required"`
-	UpdatedAt           time.Time                                  `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID       string `json:"userId" api:"required" format:"uuid"`
-	Conditions   any    `json:"conditions"`
-	NextFireTime string `json:"nextFireTime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                  respjson.Field
-		Activation          respjson.Field
-		CreatedAt           respjson.Field
-		CreatedBy           respjson.Field
-		CustomPayloadSchema respjson.Field
-		Description         respjson.Field
-		EventType           respjson.Field
-		Name                respjson.Field
-		OwnerID             respjson.Field
-		Payload             respjson.Field
-		ScheduleRule        respjson.Field
-		Timezone            respjson.Field
-		UpdatedAt           respjson.Field
-		UserID              respjson.Field
-		Conditions          respjson.Field
-		NextFireTime        respjson.Field
-		ExtraFields         map[string]respjson.Field
-		raw                 string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerNewResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerNewResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerNewResponseDataScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime string `json:"dateTime"`
-	// Cron expression (for type=cron)
-	Expression string `json:"expression"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter WorkflowTriggerNewResponseDataScheduleRuleJitter `json:"jitter"`
-	// RRULE string (for type=recurring)
-	Rrule string `json:"rrule"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Type        respjson.Field
-		DateTime    respjson.Field
-		Expression  respjson.Field
-		Jitter      respjson.Field
-		Rrule       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerNewResponseDataScheduleRule) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerNewResponseDataScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowTriggerNewResponseDataScheduleRuleJitter struct {
-	AfterMinutes  int64 `json:"afterMinutes"`
-	BeforeMinutes int64 `json:"beforeMinutes"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AfterMinutes  respjson.Field
-		BeforeMinutes respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerNewResponseDataScheduleRuleJitter) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerNewResponseDataScheduleRuleJitter) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowTriggerGetResponse struct {
-	Data WorkflowTriggerGetResponseData `json:"data" api:"required"`
+	Data Trigger `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -277,106 +194,8 @@ func (r *WorkflowTriggerGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowTriggerGetResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "event", "schedule", "custom".
-	Activation          string                                     `json:"activation" api:"required"`
-	CreatedAt           time.Time                                  `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy           string                                     `json:"createdBy" api:"required" format:"uuid"`
-	CustomPayloadSchema map[string]any                             `json:"customPayloadSchema" api:"required"`
-	Description         string                                     `json:"description" api:"required"`
-	EventType           string                                     `json:"eventType" api:"required"`
-	Name                string                                     `json:"name" api:"required"`
-	OwnerID             string                                     `json:"ownerId" api:"required" format:"uuid"`
-	Payload             map[string]any                             `json:"payload" api:"required"`
-	ScheduleRule        WorkflowTriggerGetResponseDataScheduleRule `json:"scheduleRule" api:"required"`
-	Timezone            string                                     `json:"timezone" api:"required"`
-	UpdatedAt           time.Time                                  `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID       string `json:"userId" api:"required" format:"uuid"`
-	Conditions   any    `json:"conditions"`
-	NextFireTime string `json:"nextFireTime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                  respjson.Field
-		Activation          respjson.Field
-		CreatedAt           respjson.Field
-		CreatedBy           respjson.Field
-		CustomPayloadSchema respjson.Field
-		Description         respjson.Field
-		EventType           respjson.Field
-		Name                respjson.Field
-		OwnerID             respjson.Field
-		Payload             respjson.Field
-		ScheduleRule        respjson.Field
-		Timezone            respjson.Field
-		UpdatedAt           respjson.Field
-		UserID              respjson.Field
-		Conditions          respjson.Field
-		NextFireTime        respjson.Field
-		ExtraFields         map[string]respjson.Field
-		raw                 string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerGetResponseDataScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime string `json:"dateTime"`
-	// Cron expression (for type=cron)
-	Expression string `json:"expression"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter WorkflowTriggerGetResponseDataScheduleRuleJitter `json:"jitter"`
-	// RRULE string (for type=recurring)
-	Rrule string `json:"rrule"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Type        respjson.Field
-		DateTime    respjson.Field
-		Expression  respjson.Field
-		Jitter      respjson.Field
-		Rrule       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerGetResponseDataScheduleRule) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerGetResponseDataScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowTriggerGetResponseDataScheduleRuleJitter struct {
-	AfterMinutes  int64 `json:"afterMinutes"`
-	BeforeMinutes int64 `json:"beforeMinutes"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AfterMinutes  respjson.Field
-		BeforeMinutes respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerGetResponseDataScheduleRuleJitter) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerGetResponseDataScheduleRuleJitter) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowTriggerUpdateResponse struct {
-	Data WorkflowTriggerUpdateResponseData `json:"data" api:"required"`
+	Data Trigger `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -388,220 +207,6 @@ type WorkflowTriggerUpdateResponse struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowTriggerUpdateResponse) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowTriggerUpdateResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerUpdateResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "event", "schedule", "custom".
-	Activation          string                                        `json:"activation" api:"required"`
-	CreatedAt           time.Time                                     `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy           string                                        `json:"createdBy" api:"required" format:"uuid"`
-	CustomPayloadSchema map[string]any                                `json:"customPayloadSchema" api:"required"`
-	Description         string                                        `json:"description" api:"required"`
-	EventType           string                                        `json:"eventType" api:"required"`
-	Name                string                                        `json:"name" api:"required"`
-	OwnerID             string                                        `json:"ownerId" api:"required" format:"uuid"`
-	Payload             map[string]any                                `json:"payload" api:"required"`
-	ScheduleRule        WorkflowTriggerUpdateResponseDataScheduleRule `json:"scheduleRule" api:"required"`
-	Timezone            string                                        `json:"timezone" api:"required"`
-	UpdatedAt           time.Time                                     `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID       string `json:"userId" api:"required" format:"uuid"`
-	Conditions   any    `json:"conditions"`
-	NextFireTime string `json:"nextFireTime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                  respjson.Field
-		Activation          respjson.Field
-		CreatedAt           respjson.Field
-		CreatedBy           respjson.Field
-		CustomPayloadSchema respjson.Field
-		Description         respjson.Field
-		EventType           respjson.Field
-		Name                respjson.Field
-		OwnerID             respjson.Field
-		Payload             respjson.Field
-		ScheduleRule        respjson.Field
-		Timezone            respjson.Field
-		UpdatedAt           respjson.Field
-		UserID              respjson.Field
-		Conditions          respjson.Field
-		NextFireTime        respjson.Field
-		ExtraFields         map[string]respjson.Field
-		raw                 string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerUpdateResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerUpdateResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerUpdateResponseDataScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime string `json:"dateTime"`
-	// Cron expression (for type=cron)
-	Expression string `json:"expression"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter WorkflowTriggerUpdateResponseDataScheduleRuleJitter `json:"jitter"`
-	// RRULE string (for type=recurring)
-	Rrule string `json:"rrule"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Type        respjson.Field
-		DateTime    respjson.Field
-		Expression  respjson.Field
-		Jitter      respjson.Field
-		Rrule       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerUpdateResponseDataScheduleRule) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerUpdateResponseDataScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowTriggerUpdateResponseDataScheduleRuleJitter struct {
-	AfterMinutes  int64 `json:"afterMinutes"`
-	BeforeMinutes int64 `json:"beforeMinutes"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AfterMinutes  respjson.Field
-		BeforeMinutes respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerUpdateResponseDataScheduleRuleJitter) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerUpdateResponseDataScheduleRuleJitter) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerListResponse struct {
-	Items      []WorkflowTriggerListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                 `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerListResponseItem struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "event", "schedule", "custom".
-	Activation          string                                      `json:"activation" api:"required"`
-	CreatedAt           time.Time                                   `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy           string                                      `json:"createdBy" api:"required" format:"uuid"`
-	CustomPayloadSchema map[string]any                              `json:"customPayloadSchema" api:"required"`
-	Description         string                                      `json:"description" api:"required"`
-	EventType           string                                      `json:"eventType" api:"required"`
-	Name                string                                      `json:"name" api:"required"`
-	OwnerID             string                                      `json:"ownerId" api:"required" format:"uuid"`
-	Payload             map[string]any                              `json:"payload" api:"required"`
-	ScheduleRule        WorkflowTriggerListResponseItemScheduleRule `json:"scheduleRule" api:"required"`
-	Timezone            string                                      `json:"timezone" api:"required"`
-	UpdatedAt           time.Time                                   `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID       string `json:"userId" api:"required" format:"uuid"`
-	Conditions   any    `json:"conditions"`
-	NextFireTime string `json:"nextFireTime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                  respjson.Field
-		Activation          respjson.Field
-		CreatedAt           respjson.Field
-		CreatedBy           respjson.Field
-		CustomPayloadSchema respjson.Field
-		Description         respjson.Field
-		EventType           respjson.Field
-		Name                respjson.Field
-		OwnerID             respjson.Field
-		Payload             respjson.Field
-		ScheduleRule        respjson.Field
-		Timezone            respjson.Field
-		UpdatedAt           respjson.Field
-		UserID              respjson.Field
-		Conditions          respjson.Field
-		NextFireTime        respjson.Field
-		ExtraFields         map[string]respjson.Field
-		raw                 string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowTriggerListResponseItemScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime string `json:"dateTime"`
-	// Cron expression (for type=cron)
-	Expression string `json:"expression"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter WorkflowTriggerListResponseItemScheduleRuleJitter `json:"jitter"`
-	// RRULE string (for type=recurring)
-	Rrule string `json:"rrule"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Type        respjson.Field
-		DateTime    respjson.Field
-		Expression  respjson.Field
-		Jitter      respjson.Field
-		Rrule       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerListResponseItemScheduleRule) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerListResponseItemScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowTriggerListResponseItemScheduleRuleJitter struct {
-	AfterMinutes  int64 `json:"afterMinutes"`
-	BeforeMinutes int64 `json:"beforeMinutes"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AfterMinutes  respjson.Field
-		BeforeMinutes respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowTriggerListResponseItemScheduleRuleJitter) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowTriggerListResponseItemScheduleRuleJitter) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

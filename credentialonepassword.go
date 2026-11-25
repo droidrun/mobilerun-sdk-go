@@ -59,8 +59,48 @@ func (r *CredentialOnepasswordService) Disconnect(ctx context.Context, opts ...o
 	return res, err
 }
 
+type OnePasswordConnection struct {
+	Connected   bool                         `json:"connected" api:"required"`
+	ConnectedAt string                       `json:"connectedAt"`
+	ConnectedBy string                       `json:"connectedBy"`
+	Vaults      []OnePasswordConnectionVault `json:"vaults"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Connected   respjson.Field
+		ConnectedAt respjson.Field
+		ConnectedBy respjson.Field
+		Vaults      respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r OnePasswordConnection) RawJSON() string { return r.JSON.raw }
+func (r *OnePasswordConnection) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type OnePasswordConnectionVault struct {
+	ID    string `json:"id" api:"required"`
+	Title string `json:"title" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID          respjson.Field
+		Title       respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r OnePasswordConnectionVault) RawJSON() string { return r.JSON.raw }
+func (r *OnePasswordConnectionVault) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type CredentialOnepasswordGetResponse struct {
-	Data CredentialOnepasswordGetResponseData `json:"data" api:"required"`
+	Data OnePasswordConnection `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -75,48 +115,8 @@ func (r *CredentialOnepasswordGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type CredentialOnepasswordGetResponseData struct {
-	Connected   bool                                        `json:"connected" api:"required"`
-	ConnectedAt string                                      `json:"connectedAt"`
-	ConnectedBy string                                      `json:"connectedBy"`
-	Vaults      []CredentialOnepasswordGetResponseDataVault `json:"vaults"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Connected   respjson.Field
-		ConnectedAt respjson.Field
-		ConnectedBy respjson.Field
-		Vaults      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r CredentialOnepasswordGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *CredentialOnepasswordGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type CredentialOnepasswordGetResponseDataVault struct {
-	ID    string `json:"id" api:"required"`
-	Title string `json:"title" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Title       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r CredentialOnepasswordGetResponseDataVault) RawJSON() string { return r.JSON.raw }
-func (r *CredentialOnepasswordGetResponseDataVault) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type CredentialOnepasswordConnectResponse struct {
-	Data CredentialOnepasswordConnectResponseData `json:"data" api:"required"`
+	Data OnePasswordConnection `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -128,46 +128,6 @@ type CredentialOnepasswordConnectResponse struct {
 // Returns the unmodified JSON received from the API
 func (r CredentialOnepasswordConnectResponse) RawJSON() string { return r.JSON.raw }
 func (r *CredentialOnepasswordConnectResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type CredentialOnepasswordConnectResponseData struct {
-	Connected   bool                                            `json:"connected" api:"required"`
-	ConnectedAt string                                          `json:"connectedAt"`
-	ConnectedBy string                                          `json:"connectedBy"`
-	Vaults      []CredentialOnepasswordConnectResponseDataVault `json:"vaults"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Connected   respjson.Field
-		ConnectedAt respjson.Field
-		ConnectedBy respjson.Field
-		Vaults      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r CredentialOnepasswordConnectResponseData) RawJSON() string { return r.JSON.raw }
-func (r *CredentialOnepasswordConnectResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type CredentialOnepasswordConnectResponseDataVault struct {
-	ID    string `json:"id" api:"required"`
-	Title string `json:"title" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Title       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r CredentialOnepasswordConnectResponseDataVault) RawJSON() string { return r.JSON.raw }
-func (r *CredentialOnepasswordConnectResponseDataVault) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

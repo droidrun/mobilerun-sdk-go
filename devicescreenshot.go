@@ -101,6 +101,15 @@ func (r *DeviceScreenshotService) Image(ctx context.Context, screenshotID string
 	return err
 }
 
+// Saved screenshots across all devices, newest first, including files whose device
+// has been removed. Pass nextCursor as cursor to retrieve the next page.
+func (r *DeviceScreenshotService) ListAll(ctx context.Context, query DeviceScreenshotListAllParams, opts ...option.RequestOption) (res *DeviceScreenshotListAllResponse, err error) {
+	opts = slices.Concat(r.options, opts)
+	path := "devices/screenshots"
+	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
+	return res, err
+}
+
 type DeviceScreenshotListResponse struct {
 	Items      []DeviceScreenshotListResponseItem `json:"items" api:"required"`
 	NextCursor string                             `json:"nextCursor" api:"required"`
@@ -148,6 +157,53 @@ func (r *DeviceScreenshotListResponseItem) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
+type DeviceScreenshotListAllResponse struct {
+	Items      []DeviceScreenshotListAllResponseItem `json:"items" api:"required"`
+	NextCursor string                                `json:"nextCursor" api:"required"`
+	// A URL to the JSON Schema for this object.
+	Schema string `json:"$schema" format:"uri"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Items       respjson.Field
+		NextCursor  respjson.Field
+		Schema      respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r DeviceScreenshotListAllResponse) RawJSON() string { return r.JSON.raw }
+func (r *DeviceScreenshotListAllResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type DeviceScreenshotListAllResponseItem struct {
+	ID          string    `json:"id" api:"required"`
+	CapturedAt  time.Time `json:"capturedAt" api:"required" format:"date-time"`
+	DeviceID    string    `json:"deviceId" api:"required"`
+	ExpiresAt   time.Time `json:"expiresAt" api:"required" format:"date-time"`
+	RecordingID string    `json:"recordingId" api:"required"`
+	SizeBytes   int64     `json:"sizeBytes" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID          respjson.Field
+		CapturedAt  respjson.Field
+		DeviceID    respjson.Field
+		ExpiresAt   respjson.Field
+		RecordingID respjson.Field
+		SizeBytes   respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r DeviceScreenshotListAllResponseItem) RawJSON() string { return r.JSON.raw }
+func (r *DeviceScreenshotListAllResponseItem) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type DeviceScreenshotListParams struct {
 	Cursor param.Opt[string] `query:"cursor,omitzero" json:"-"`
 	Limit  param.Opt[int64]  `query:"limit,omitzero" json:"-"`
@@ -190,4 +246,20 @@ func (r DeviceScreenshotCaptureParams) URLQuery() (v url.Values, err error) {
 type DeviceScreenshotImageParams struct {
 	DeviceID string `path:"deviceId" api:"required" json:"-"`
 	paramObj
+}
+
+type DeviceScreenshotListAllParams struct {
+	Cursor   param.Opt[string] `query:"cursor,omitzero" json:"-"`
+	DeviceID param.Opt[string] `query:"deviceId,omitzero" format:"uuid" json:"-"`
+	Limit    param.Opt[int64]  `query:"limit,omitzero" json:"-"`
+	paramObj
+}
+
+// URLQuery serializes [DeviceScreenshotListAllParams]'s query parameters as
+// `url.Values`.
+func (r DeviceScreenshotListAllParams) URLQuery() (v url.Values, err error) {
+	return apiquery.MarshalWithSettings(r, apiquery.QuerySettings{
+		ArrayFormat:  apiquery.ArrayQueryFormatComma,
+		NestedFormat: apiquery.NestedQueryFormatBrackets,
+	})
 }

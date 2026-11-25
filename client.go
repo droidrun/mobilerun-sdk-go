@@ -22,6 +22,7 @@ type Client struct {
 	Credentials  CredentialService
 	Devices      DeviceService
 	StreamTokens StreamTokenService
+	Identity     IdentityService
 	Models       ModelService
 	Proxies      ProxyService
 	Compute      ComputeService
@@ -37,6 +38,7 @@ type Client struct {
 	Assistant    AssistantService
 	Messages     MessageService
 	Numbers      NumberService
+	Store        StoreService
 }
 
 // DefaultClientOptions read from the environment (MOBILERUN_API_KEY,
@@ -73,6 +75,7 @@ func NewClient(opts ...option.RequestOption) (r Client) {
 	r.Credentials = NewCredentialService(opts...)
 	r.Devices = NewDeviceService(opts...)
 	r.StreamTokens = NewStreamTokenService(opts...)
+	r.Identity = NewIdentityService(opts...)
 	r.Models = NewModelService(opts...)
 	r.Proxies = NewProxyService(opts...)
 	r.Compute = NewComputeService(opts...)
@@ -87,6 +90,7 @@ func NewClient(opts ...option.RequestOption) (r Client) {
 	r.Assistant = NewAssistantService(opts...)
 	r.Messages = NewMessageService(opts...)
 	r.Numbers = NewNumberService(opts...)
+	r.Store = NewStoreService(opts...)
 
 	return
 }

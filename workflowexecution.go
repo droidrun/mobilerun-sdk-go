@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WorkflowExecutionService contains methods and other services that help with
@@ -59,11 +59,29 @@ func (r *WorkflowExecutionService) Get(ctx context.Context, executionID string, 
 // `triggerId`, `invocationId` (the client/verify key), `status`, `kind` (one or
 // more execution kinds), and a `from`/`to` time range, plus free-text `search` and
 // ordering by startedAt, finishedAt, or status.
-func (r *WorkflowExecutionService) List(ctx context.Context, query WorkflowExecutionListParams, opts ...option.RequestOption) (res *WorkflowExecutionListResponse, err error) {
+func (r *WorkflowExecutionService) List(ctx context.Context, query WorkflowExecutionListParams, opts ...option.RequestOption) (res *pagination.Page[WorkflowExecutionListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "executions"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Return a paginated history of flow executions. Supports filtering by `flowId`,
+// `triggerId`, `invocationId` (the client/verify key), `status`, `kind` (one or
+// more execution kinds), and a `from`/`to` time range, plus free-text `search` and
+// ordering by startedAt, finishedAt, or status.
+func (r *WorkflowExecutionService) ListAutoPaging(ctx context.Context, query WorkflowExecutionListParams, opts ...option.RequestOption) *pagination.PageAutoPager[WorkflowExecutionListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Stops the execution between steps and marks it cancelled. Idempotent-ish:
@@ -454,24 +472,6 @@ func (r *WorkflowExecutionGetResponseDataScreenshot) UnmarshalJSON(data []byte) 
 }
 
 type WorkflowExecutionListResponse struct {
-	Items      []WorkflowExecutionListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                   `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowExecutionListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowExecutionListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowExecutionListResponseItem struct {
 	ID        string `json:"id" api:"required" format:"uuid"`
 	CreatedBy string `json:"createdBy" api:"required" format:"uuid"`
 	// Device this execution targets (the job's deviceId). Null for device-less
@@ -487,21 +487,21 @@ type WorkflowExecutionListResponseItem struct {
 	// rows.
 	InvocationID string `json:"invocationId" api:"required" format:"uuid"`
 	// Any of "live", "dry_run", "verification".
-	Kind              string `json:"kind" api:"required"`
-	RecordingDeviceID string `json:"recordingDeviceId" api:"required" format:"uuid"`
+	Kind              WorkflowExecutionListResponseKind `json:"kind" api:"required"`
+	RecordingDeviceID string                            `json:"recordingDeviceId" api:"required" format:"uuid"`
 	// Device recording id for this execution, set once recording starts. Null when the
 	// flow has recording disabled, no device is bound, or the recording failed to
 	// start.
 	RecordingID string `json:"recordingId" api:"required" format:"uuid"`
 	// Durable recording segments ordered by step/loop coordinate and retry attempt.
 	// Whole-flow recordings use -1 for every coordinate.
-	Recordings []WorkflowExecutionListResponseItemRecording `json:"recordings" api:"required"`
-	StartedAt  time.Time                                    `json:"startedAt" api:"required" format:"date-time"`
+	Recordings []WorkflowExecutionListResponseRecording `json:"recordings" api:"required"`
+	StartedAt  time.Time                                `json:"startedAt" api:"required" format:"date-time"`
 	// Any of "pending", "running", "success", "failed", "cancelled", "skipped",
 	// "invalid".
-	Status      string `json:"status" api:"required"`
-	TriggerID   string `json:"triggerId" api:"required" format:"uuid"`
-	TriggerName string `json:"triggerName" api:"required"`
+	Status      WorkflowExecutionListResponseStatus `json:"status" api:"required"`
+	TriggerID   string                              `json:"triggerId" api:"required" format:"uuid"`
+	TriggerName string                              `json:"triggerName" api:"required"`
 	// Opaque result blob ({ steps: [...] } or historical dry-run { actions: [...] }).
 	// Steps and nested loop/action children carry `uses` (authored step name,
 	// including hidden executable steps; null when unavailable). Admin execution list
@@ -540,12 +540,20 @@ type WorkflowExecutionListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WorkflowExecutionListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowExecutionListResponseItem) UnmarshalJSON(data []byte) error {
+func (r WorkflowExecutionListResponse) RawJSON() string { return r.JSON.raw }
+func (r *WorkflowExecutionListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowExecutionListResponseItemRecording struct {
+type WorkflowExecutionListResponseKind string
+
+const (
+	WorkflowExecutionListResponseKindLive         WorkflowExecutionListResponseKind = "live"
+	WorkflowExecutionListResponseKindDryRun       WorkflowExecutionListResponseKind = "dry_run"
+	WorkflowExecutionListResponseKindVerification WorkflowExecutionListResponseKind = "verification"
+)
+
+type WorkflowExecutionListResponseRecording struct {
 	ID                string `json:"id" api:"required" format:"uuid"`
 	Attempt           int64  `json:"attempt" api:"required"`
 	ChildIndex        int64  `json:"childIndex" api:"required"`
@@ -584,10 +592,22 @@ type WorkflowExecutionListResponseItemRecording struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WorkflowExecutionListResponseItemRecording) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowExecutionListResponseItemRecording) UnmarshalJSON(data []byte) error {
+func (r WorkflowExecutionListResponseRecording) RawJSON() string { return r.JSON.raw }
+func (r *WorkflowExecutionListResponseRecording) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type WorkflowExecutionListResponseStatus string
+
+const (
+	WorkflowExecutionListResponseStatusPending   WorkflowExecutionListResponseStatus = "pending"
+	WorkflowExecutionListResponseStatusRunning   WorkflowExecutionListResponseStatus = "running"
+	WorkflowExecutionListResponseStatusSuccess   WorkflowExecutionListResponseStatus = "success"
+	WorkflowExecutionListResponseStatusFailed    WorkflowExecutionListResponseStatus = "failed"
+	WorkflowExecutionListResponseStatusCancelled WorkflowExecutionListResponseStatus = "cancelled"
+	WorkflowExecutionListResponseStatusSkipped   WorkflowExecutionListResponseStatus = "skipped"
+	WorkflowExecutionListResponseStatusInvalid   WorkflowExecutionListResponseStatus = "invalid"
+)
 
 type WorkflowExecutionAbortResponse struct {
 	Data WorkflowExecutionAbortResponseData `json:"data" api:"required"`

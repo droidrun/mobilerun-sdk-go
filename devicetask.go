@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // DeviceTaskService contains methods and other services that help with interacting
@@ -41,39 +41,34 @@ func NewDeviceTaskService(opts ...option.RequestOption) (r DeviceTaskService) {
 
 // Returns a paginated list of tasks that have run on the device, along with
 // pagination metadata.
-func (r *DeviceTaskService) List(ctx context.Context, deviceID string, query DeviceTaskListParams, opts ...option.RequestOption) (res *DeviceTaskListResponse, err error) {
+func (r *DeviceTaskService) List(ctx context.Context, deviceID string, query DeviceTaskListParams, opts ...option.RequestOption) (res *pagination.Page[DeviceTaskListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if deviceID == "" {
 		err = errors.New("missing required deviceId parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("devices/%s/tasks", url.PathEscape(deviceID))
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns a paginated list of tasks that have run on the device, along with
+// pagination metadata.
+func (r *DeviceTaskService) ListAutoPaging(ctx context.Context, deviceID string, query DeviceTaskListParams, opts ...option.RequestOption) *pagination.PageAutoPager[DeviceTaskListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, deviceID, query, opts...))
 }
 
 type DeviceTaskListResponse struct {
-	Items      []DeviceTaskListResponseItem `json:"items" api:"required"`
-	Pagination shared.Meta                  `json:"pagination" api:"required"`
-	// A URL to the JSON Schema for this object.
-	Schema string `json:"$schema" format:"uri"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		Schema      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceTaskListResponse) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTaskListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceTaskListResponseItem struct {
 	CreatedAt time.Time `json:"createdAt" api:"required" format:"date-time"`
 	TaskID    string    `json:"taskId" api:"required"`
 	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
@@ -88,8 +83,8 @@ type DeviceTaskListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r DeviceTaskListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *DeviceTaskListResponseItem) UnmarshalJSON(data []byte) error {
+func (r DeviceTaskListResponse) RawJSON() string { return r.JSON.raw }
+func (r *DeviceTaskListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
