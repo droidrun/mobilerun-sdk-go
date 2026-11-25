@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WorkflowActionService contains methods and other services that help with
@@ -85,11 +85,28 @@ func (r *WorkflowActionService) Update(ctx context.Context, actionID string, bod
 // Return a paginated list of actions. Supports filtering by
 // `profile=agent_routine`, `service`, free-text `search`, and ordering by name,
 // createdAt, or updatedAt.
-func (r *WorkflowActionService) List(ctx context.Context, query WorkflowActionListParams, opts ...option.RequestOption) (res *WorkflowActionListResponse, err error) {
+func (r *WorkflowActionService) List(ctx context.Context, query WorkflowActionListParams, opts ...option.RequestOption) (res *pagination.Page[Action], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "actions"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Return a paginated list of actions. Supports filtering by
+// `profile=agent_routine`, `service`, free-text `search`, and ordering by name,
+// createdAt, or updatedAt.
+func (r *WorkflowActionService) ListAutoPaging(ctx context.Context, query WorkflowActionListParams, opts ...option.RequestOption) *pagination.PageAutoPager[Action] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Delete an action by its ID. Returns 404 if no action matches.
@@ -104,8 +121,77 @@ func (r *WorkflowActionService) Delete(ctx context.Context, actionID string, opt
 	return res, err
 }
 
+type Action struct {
+	ID             string    `json:"id" api:"required" format:"uuid"`
+	CatalogEntryID string    `json:"catalogEntryId" api:"required" format:"uuid"`
+	CreatedAt      time.Time `json:"createdAt" api:"required" format:"date-time"`
+	CreatedBy      string    `json:"createdBy" api:"required" format:"uuid"`
+	Description    string    `json:"description" api:"required"`
+	// Deprecated: use uses.
+	//
+	// Deprecated: deprecated
+	Method  string `json:"method" api:"required"`
+	Name    string `json:"name" api:"required"`
+	OwnerID string `json:"ownerId" api:"required" format:"uuid"`
+	// Deprecated: use uses.
+	//
+	// Any of "tasks_api", "devices_api", "agents_api", "webhooks", "integrations_api",
+	// "triggers_api", "sandbox_api".
+	//
+	// Deprecated: deprecated
+	Service   ActionService `json:"service" api:"required"`
+	UpdatedAt time.Time     `json:"updatedAt" api:"required" format:"date-time"`
+	// Deprecated: use ownerId (tenancy) / createdBy (actor).
+	//
+	// Deprecated: deprecated
+	UserID string `json:"userId" api:"required" format:"uuid"`
+	// Authored step name; null when this step has no name. Includes hidden executable
+	// steps.
+	Uses         string `json:"uses" api:"required"`
+	Params       any    `json:"params"`
+	ParamsSchema any    `json:"paramsSchema"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID             respjson.Field
+		CatalogEntryID respjson.Field
+		CreatedAt      respjson.Field
+		CreatedBy      respjson.Field
+		Description    respjson.Field
+		Method         respjson.Field
+		Name           respjson.Field
+		OwnerID        respjson.Field
+		Service        respjson.Field
+		UpdatedAt      respjson.Field
+		UserID         respjson.Field
+		Uses           respjson.Field
+		Params         respjson.Field
+		ParamsSchema   respjson.Field
+		ExtraFields    map[string]respjson.Field
+		raw            string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r Action) RawJSON() string { return r.JSON.raw }
+func (r *Action) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Deprecated: use uses.
+type ActionService string
+
+const (
+	ActionServiceTasksAPI        ActionService = "tasks_api"
+	ActionServiceDevicesAPI      ActionService = "devices_api"
+	ActionServiceAgentsAPI       ActionService = "agents_api"
+	ActionServiceWebhooks        ActionService = "webhooks"
+	ActionServiceIntegrationsAPI ActionService = "integrations_api"
+	ActionServiceTriggersAPI     ActionService = "triggers_api"
+	ActionServiceSandboxAPI      ActionService = "sandbox_api"
+)
+
 type WorkflowActionNewResponse struct {
-	Data WorkflowActionNewResponseData `json:"data" api:"required"`
+	Data Action `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -120,64 +206,8 @@ func (r *WorkflowActionNewResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowActionNewResponseData struct {
-	ID             string    `json:"id" api:"required" format:"uuid"`
-	CatalogEntryID string    `json:"catalogEntryId" api:"required" format:"uuid"`
-	CreatedAt      time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy      string    `json:"createdBy" api:"required" format:"uuid"`
-	Description    string    `json:"description" api:"required"`
-	// Deprecated: use uses.
-	//
-	// Deprecated: deprecated
-	Method  string `json:"method" api:"required"`
-	Name    string `json:"name" api:"required"`
-	OwnerID string `json:"ownerId" api:"required" format:"uuid"`
-	// Deprecated: use uses.
-	//
-	// Any of "tasks_api", "devices_api", "agents_api", "webhooks", "integrations_api",
-	// "triggers_api", "sandbox_api".
-	//
-	// Deprecated: deprecated
-	Service   string    `json:"service" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Authored step name; null when this step has no name. Includes hidden executable
-	// steps.
-	Uses         string `json:"uses" api:"required"`
-	Params       any    `json:"params"`
-	ParamsSchema any    `json:"paramsSchema"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		CatalogEntryID respjson.Field
-		CreatedAt      respjson.Field
-		CreatedBy      respjson.Field
-		Description    respjson.Field
-		Method         respjson.Field
-		Name           respjson.Field
-		OwnerID        respjson.Field
-		Service        respjson.Field
-		UpdatedAt      respjson.Field
-		UserID         respjson.Field
-		Uses           respjson.Field
-		Params         respjson.Field
-		ParamsSchema   respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowActionNewResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowActionNewResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowActionGetResponse struct {
-	Data WorkflowActionGetResponseData `json:"data" api:"required"`
+	Data Action `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -192,64 +222,8 @@ func (r *WorkflowActionGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowActionGetResponseData struct {
-	ID             string    `json:"id" api:"required" format:"uuid"`
-	CatalogEntryID string    `json:"catalogEntryId" api:"required" format:"uuid"`
-	CreatedAt      time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy      string    `json:"createdBy" api:"required" format:"uuid"`
-	Description    string    `json:"description" api:"required"`
-	// Deprecated: use uses.
-	//
-	// Deprecated: deprecated
-	Method  string `json:"method" api:"required"`
-	Name    string `json:"name" api:"required"`
-	OwnerID string `json:"ownerId" api:"required" format:"uuid"`
-	// Deprecated: use uses.
-	//
-	// Any of "tasks_api", "devices_api", "agents_api", "webhooks", "integrations_api",
-	// "triggers_api", "sandbox_api".
-	//
-	// Deprecated: deprecated
-	Service   string    `json:"service" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Authored step name; null when this step has no name. Includes hidden executable
-	// steps.
-	Uses         string `json:"uses" api:"required"`
-	Params       any    `json:"params"`
-	ParamsSchema any    `json:"paramsSchema"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		CatalogEntryID respjson.Field
-		CreatedAt      respjson.Field
-		CreatedBy      respjson.Field
-		Description    respjson.Field
-		Method         respjson.Field
-		Name           respjson.Field
-		OwnerID        respjson.Field
-		Service        respjson.Field
-		UpdatedAt      respjson.Field
-		UserID         respjson.Field
-		Uses           respjson.Field
-		Params         respjson.Field
-		ParamsSchema   respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowActionGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowActionGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowActionUpdateResponse struct {
-	Data WorkflowActionUpdateResponseData `json:"data" api:"required"`
+	Data Action `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -261,136 +235,6 @@ type WorkflowActionUpdateResponse struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowActionUpdateResponse) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowActionUpdateResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowActionUpdateResponseData struct {
-	ID             string    `json:"id" api:"required" format:"uuid"`
-	CatalogEntryID string    `json:"catalogEntryId" api:"required" format:"uuid"`
-	CreatedAt      time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy      string    `json:"createdBy" api:"required" format:"uuid"`
-	Description    string    `json:"description" api:"required"`
-	// Deprecated: use uses.
-	//
-	// Deprecated: deprecated
-	Method  string `json:"method" api:"required"`
-	Name    string `json:"name" api:"required"`
-	OwnerID string `json:"ownerId" api:"required" format:"uuid"`
-	// Deprecated: use uses.
-	//
-	// Any of "tasks_api", "devices_api", "agents_api", "webhooks", "integrations_api",
-	// "triggers_api", "sandbox_api".
-	//
-	// Deprecated: deprecated
-	Service   string    `json:"service" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Authored step name; null when this step has no name. Includes hidden executable
-	// steps.
-	Uses         string `json:"uses" api:"required"`
-	Params       any    `json:"params"`
-	ParamsSchema any    `json:"paramsSchema"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		CatalogEntryID respjson.Field
-		CreatedAt      respjson.Field
-		CreatedBy      respjson.Field
-		Description    respjson.Field
-		Method         respjson.Field
-		Name           respjson.Field
-		OwnerID        respjson.Field
-		Service        respjson.Field
-		UpdatedAt      respjson.Field
-		UserID         respjson.Field
-		Uses           respjson.Field
-		Params         respjson.Field
-		ParamsSchema   respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowActionUpdateResponseData) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowActionUpdateResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowActionListResponse struct {
-	Items      []WorkflowActionListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowActionListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowActionListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowActionListResponseItem struct {
-	ID             string    `json:"id" api:"required" format:"uuid"`
-	CatalogEntryID string    `json:"catalogEntryId" api:"required" format:"uuid"`
-	CreatedAt      time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy      string    `json:"createdBy" api:"required" format:"uuid"`
-	Description    string    `json:"description" api:"required"`
-	// Deprecated: use uses.
-	//
-	// Deprecated: deprecated
-	Method  string `json:"method" api:"required"`
-	Name    string `json:"name" api:"required"`
-	OwnerID string `json:"ownerId" api:"required" format:"uuid"`
-	// Deprecated: use uses.
-	//
-	// Any of "tasks_api", "devices_api", "agents_api", "webhooks", "integrations_api",
-	// "triggers_api", "sandbox_api".
-	//
-	// Deprecated: deprecated
-	Service   string    `json:"service" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Authored step name; null when this step has no name. Includes hidden executable
-	// steps.
-	Uses         string `json:"uses" api:"required"`
-	Params       any    `json:"params"`
-	ParamsSchema any    `json:"paramsSchema"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID             respjson.Field
-		CatalogEntryID respjson.Field
-		CreatedAt      respjson.Field
-		CreatedBy      respjson.Field
-		Description    respjson.Field
-		Method         respjson.Field
-		Name           respjson.Field
-		OwnerID        respjson.Field
-		Service        respjson.Field
-		UpdatedAt      respjson.Field
-		UserID         respjson.Field
-		Uses           respjson.Field
-		Params         respjson.Field
-		ParamsSchema   respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowActionListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowActionListResponseItem) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

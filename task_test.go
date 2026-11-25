@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/droidrun/mobilerun-sdk-go/v6"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/testutil"
@@ -260,6 +261,34 @@ func TestTaskSendMessage(t *testing.T) {
 			Message: "x",
 		},
 	)
+	if err != nil {
+		var apierr *mobilerun.Error
+		if errors.As(err, &apierr) {
+			t.Log(string(apierr.DumpRequest(true)))
+		}
+		t.Fatalf("err should be nil: %s", err.Error())
+	}
+}
+
+func TestTaskStatsWithOptionalParams(t *testing.T) {
+	t.Skip("Mock server tests are disabled")
+	baseURL := "http://localhost:4010"
+	if envURL, ok := os.LookupEnv("TEST_API_BASE_URL"); ok {
+		baseURL = envURL
+	}
+	if !testutil.CheckTestServer(t, baseURL) {
+		return
+	}
+	client := mobilerun.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("My API Key"),
+	)
+	_, err := client.Tasks.Stats(context.TODO(), mobilerun.TaskStatsParams{
+		From:   time.Now(),
+		To:     time.Now(),
+		Bucket: mobilerun.TaskStatsParamsBucketHour,
+		Source: mobilerun.TaskStatsParamsSourceAPI,
+	})
 	if err != nil {
 		var apierr *mobilerun.Error
 		if errors.As(err, &apierr) {

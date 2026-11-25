@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // NumberService contains methods and other services that help with interacting
@@ -76,11 +76,26 @@ func (r *NumberService) Update(ctx context.Context, id string, body NumberUpdate
 }
 
 // Lists the caller's phone numbers.
-func (r *NumberService) List(ctx context.Context, query NumberListParams, opts ...option.RequestOption) (res *NumberListResponse, err error) {
+func (r *NumberService) List(ctx context.Context, query NumberListParams, opts ...option.RequestOption) (res *pagination.Page[PublicNumber], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "numbers/phones"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Lists the caller's phone numbers.
+func (r *NumberService) ListAutoPaging(ctx context.Context, query NumberListParams, opts ...option.RequestOption) *pagination.PageAutoPager[PublicNumber] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Cancels a pending purchase or schedules cancellation of an active paid phone
@@ -113,6 +128,223 @@ func (r *NumberService) Countries(ctx context.Context, opts ...option.RequestOpt
 	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, nil, &res, opts...)
 	return res, err
 }
+
+// The device this number is bound to, or null.
+type PublicDeviceBinding struct {
+	BoundAt    time.Time `json:"boundAt" api:"required" format:"date-time"`
+	DeviceID   string    `json:"deviceId" api:"required"`
+	DeviceType string    `json:"deviceType" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		BoundAt     respjson.Field
+		DeviceID    respjson.Field
+		DeviceType  respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicDeviceBinding) RawJSON() string { return r.JSON.raw }
+func (r *PublicDeviceBinding) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type PublicNumber struct {
+	ID string `json:"id" api:"required" format:"uuid"`
+	// Actions currently available for this phone number.
+	Actions           PublicNumberActions `json:"actions" api:"required"`
+	CancelAtPeriodEnd bool                `json:"cancelAtPeriodEnd" api:"required"`
+	// Deprecated: use `actions.cancel`
+	//
+	// Deprecated: deprecated
+	Cancellable bool `json:"cancellable" api:"required"`
+	// Deprecated: use `actions.send`
+	//
+	// Deprecated: deprecated
+	CanSend bool `json:"canSend" api:"required"`
+	// Deprecated: use `lineCapabilities`
+	//
+	// Any of "sms", "voice".
+	//
+	// Deprecated: deprecated
+	Capabilities     []string  `json:"capabilities" api:"required"`
+	CheckoutURL      string    `json:"checkoutUrl" api:"required"`
+	CountryCode      string    `json:"countryCode" api:"required"`
+	CreatedAt        time.Time `json:"createdAt" api:"required" format:"date-time"`
+	CurrentPeriodEnd time.Time `json:"currentPeriodEnd" api:"required" format:"date-time"`
+	// The device this number is bound to, or null.
+	DeviceBinding PublicDeviceBinding `json:"deviceBinding" api:"required"`
+	// Why setup failed. Null unless state is failed, and null when the failure has no
+	// classified reason. out_of_stock: no number is currently available for the
+	// requested country.
+	//
+	// Any of "out_of_stock", "unknown".
+	FailureReason PublicNumberFailureReason `json:"failureReason" api:"required"`
+	// ICCID of the SIM behind this line when a trustworthy value is known, else null.
+	Iccid string `json:"iccid" api:"required"`
+	Label string `json:"label" api:"required"`
+	// What this line supports in principle, per channel. Use `actions` for what you
+	// can do right now.
+	LineCapabilities PublicNumberLineCapabilities `json:"lineCapabilities" api:"required"`
+	PhoneNumber      string                       `json:"phoneNumber" api:"required"`
+	Purpose          string                       `json:"purpose" api:"required"`
+	// SIM of a phone connected through the Mobilerun Portal app; null for other phones
+	// or before the first sync.
+	Sim PublicNumberSim `json:"sim" api:"required"`
+	// Any of "awaiting_payment", "provisioning", "active", "cancel_scheduled",
+	// "expired", "failed".
+	State     PublicNumberState `json:"state" api:"required"`
+	UpdatedAt time.Time         `json:"updatedAt" api:"required" format:"date-time"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID                respjson.Field
+		Actions           respjson.Field
+		CancelAtPeriodEnd respjson.Field
+		Cancellable       respjson.Field
+		CanSend           respjson.Field
+		Capabilities      respjson.Field
+		CheckoutURL       respjson.Field
+		CountryCode       respjson.Field
+		CreatedAt         respjson.Field
+		CurrentPeriodEnd  respjson.Field
+		DeviceBinding     respjson.Field
+		FailureReason     respjson.Field
+		Iccid             respjson.Field
+		Label             respjson.Field
+		LineCapabilities  respjson.Field
+		PhoneNumber       respjson.Field
+		Purpose           respjson.Field
+		Sim               respjson.Field
+		State             respjson.Field
+		UpdatedAt         respjson.Field
+		ExtraFields       map[string]respjson.Field
+		raw               string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicNumber) RawJSON() string { return r.JSON.raw }
+func (r *PublicNumber) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Actions currently available for this phone number.
+type PublicNumberActions struct {
+	// True when this number can be bound to a cloud device (active, has a phone
+	// number, receives SMS, not a BYO device line). When false,
+	// `bindDeviceBlockedReason` says why.
+	BindDevice bool `json:"bindDevice" api:"required"`
+	// Why `bindDevice` is false; null exactly when it is true.
+	//
+	// Any of "number_not_active", "no_phone_number", "sms_inbound_unsupported",
+	// "byo_device_line".
+	BindDeviceBlockedReason string `json:"bindDeviceBlockedReason" api:"required"`
+	// True when DELETE /numbers/phones/{id} would cancel or abort this number now.
+	// False once a cancellation is already scheduled; the DELETE stays idempotent.
+	Cancel bool `json:"cancel" api:"required"`
+	// True when this number passes the send gate of POST
+	// /numbers/phones/{id}/messages: self-service sending is switched on and the
+	// number is active and able to send SMS. Daily and burst limits and recipient/body
+	// checks still apply; the send endpoint stays the final judge.
+	Send bool `json:"send" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		BindDevice              respjson.Field
+		BindDeviceBlockedReason respjson.Field
+		Cancel                  respjson.Field
+		Send                    respjson.Field
+		ExtraFields             map[string]respjson.Field
+		raw                     string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicNumberActions) RawJSON() string { return r.JSON.raw }
+func (r *PublicNumberActions) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Why setup failed. Null unless state is failed, and null when the failure has no
+// classified reason. out_of_stock: no number is currently available for the
+// requested country.
+type PublicNumberFailureReason string
+
+const (
+	PublicNumberFailureReasonOutOfStock PublicNumberFailureReason = "out_of_stock"
+	PublicNumberFailureReasonUnknown    PublicNumberFailureReason = "unknown"
+)
+
+// What this line supports in principle, per channel. Use `actions` for what you
+// can do right now.
+type PublicNumberLineCapabilities struct {
+	SMS PublicNumberLineCapabilitiesSMS `json:"sms" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		SMS         respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicNumberLineCapabilities) RawJSON() string { return r.JSON.raw }
+func (r *PublicNumberLineCapabilities) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type PublicNumberLineCapabilitiesSMS struct {
+	// This line can receive on this channel.
+	Inbound bool `json:"inbound" api:"required"`
+	// This line can send on this channel.
+	Outbound bool `json:"outbound" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Inbound     respjson.Field
+		Outbound    respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicNumberLineCapabilitiesSMS) RawJSON() string { return r.JSON.raw }
+func (r *PublicNumberLineCapabilitiesSMS) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// SIM of a phone connected through the Mobilerun Portal app; null for other phones
+// or before the first sync.
+type PublicNumberSim struct {
+	CarrierName string `json:"carrierName" api:"required"`
+	DisplayName string `json:"displayName" api:"required"`
+	SimSlot     int64  `json:"simSlot" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		CarrierName respjson.Field
+		DisplayName respjson.Field
+		SimSlot     respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PublicNumberSim) RawJSON() string { return r.JSON.raw }
+func (r *PublicNumberSim) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type PublicNumberState string
+
+const (
+	PublicNumberStateAwaitingPayment PublicNumberState = "awaiting_payment"
+	PublicNumberStateProvisioning    PublicNumberState = "provisioning"
+	PublicNumberStateActive          PublicNumberState = "active"
+	PublicNumberStateCancelScheduled PublicNumberState = "cancel_scheduled"
+	PublicNumberStateExpired         PublicNumberState = "expired"
+	PublicNumberStateFailed          PublicNumberState = "failed"
+)
 
 type NumberNewResponse struct {
 	Data NumberNewResponseData `json:"data" api:"required"`
@@ -152,7 +384,7 @@ func (r *NumberNewResponseData) UnmarshalJSON(data []byte) error {
 }
 
 type NumberGetResponse struct {
-	Data NumberGetResponseData `json:"data" api:"required"`
+	Data PublicNumber `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -167,204 +399,8 @@ func (r *NumberGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type NumberGetResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Actions currently available for this phone number.
-	Actions           NumberGetResponseDataActions `json:"actions" api:"required"`
-	CancelAtPeriodEnd bool                         `json:"cancelAtPeriodEnd" api:"required"`
-	// Deprecated: use `actions.cancel`
-	//
-	// Deprecated: deprecated
-	Cancellable bool `json:"cancellable" api:"required"`
-	// Deprecated: use `actions.send`
-	//
-	// Deprecated: deprecated
-	CanSend bool `json:"canSend" api:"required"`
-	// Deprecated: use `lineCapabilities`
-	//
-	// Any of "sms", "voice".
-	//
-	// Deprecated: deprecated
-	Capabilities     []string  `json:"capabilities" api:"required"`
-	CheckoutURL      string    `json:"checkoutUrl" api:"required"`
-	CountryCode      string    `json:"countryCode" api:"required"`
-	CreatedAt        time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd time.Time `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	// The device this number is bound to, or null.
-	DeviceBinding NumberGetResponseDataDeviceBinding `json:"deviceBinding" api:"required"`
-	// Why setup failed. Null unless state is failed, and null when the failure has no
-	// classified reason. out_of_stock: no number is currently available for the
-	// requested country.
-	//
-	// Any of "out_of_stock", "unknown".
-	FailureReason string `json:"failureReason" api:"required"`
-	// ICCID of the SIM behind this line when a trustworthy value is known, else null.
-	Iccid string `json:"iccid" api:"required"`
-	Label string `json:"label" api:"required"`
-	// What this line supports in principle, per channel. Use `actions` for what you
-	// can do right now.
-	LineCapabilities NumberGetResponseDataLineCapabilities `json:"lineCapabilities" api:"required"`
-	PhoneNumber      string                                `json:"phoneNumber" api:"required"`
-	Purpose          string                                `json:"purpose" api:"required"`
-	// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-	// or before the first sync.
-	Sim NumberGetResponseDataSim `json:"sim" api:"required"`
-	// Any of "awaiting_payment", "provisioning", "active", "cancel_scheduled",
-	// "expired", "failed".
-	State     string    `json:"state" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Actions           respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		Cancellable       respjson.Field
-		CanSend           respjson.Field
-		Capabilities      respjson.Field
-		CheckoutURL       respjson.Field
-		CountryCode       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DeviceBinding     respjson.Field
-		FailureReason     respjson.Field
-		Iccid             respjson.Field
-		Label             respjson.Field
-		LineCapabilities  respjson.Field
-		PhoneNumber       respjson.Field
-		Purpose           respjson.Field
-		Sim               respjson.Field
-		State             respjson.Field
-		UpdatedAt         respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Actions currently available for this phone number.
-type NumberGetResponseDataActions struct {
-	// True when this number can be bound to a cloud device (active, has a phone
-	// number, receives SMS, not a BYO device line). When false,
-	// `bindDeviceBlockedReason` says why.
-	BindDevice bool `json:"bindDevice" api:"required"`
-	// Why `bindDevice` is false; null exactly when it is true.
-	//
-	// Any of "number_not_active", "no_phone_number", "sms_inbound_unsupported",
-	// "byo_device_line".
-	BindDeviceBlockedReason string `json:"bindDeviceBlockedReason" api:"required"`
-	// True when DELETE /numbers/phones/{id} would cancel or abort this number now.
-	// False once a cancellation is already scheduled; the DELETE stays idempotent.
-	Cancel bool `json:"cancel" api:"required"`
-	// True when this number passes the send gate of POST
-	// /numbers/phones/{id}/messages: self-service sending is switched on and the
-	// number is active and able to send SMS. Daily and burst limits and recipient/body
-	// checks still apply; the send endpoint stays the final judge.
-	Send bool `json:"send" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BindDevice              respjson.Field
-		BindDeviceBlockedReason respjson.Field
-		Cancel                  respjson.Field
-		Send                    respjson.Field
-		ExtraFields             map[string]respjson.Field
-		raw                     string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseDataActions) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseDataActions) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The device this number is bound to, or null.
-type NumberGetResponseDataDeviceBinding struct {
-	BoundAt    time.Time `json:"boundAt" api:"required" format:"date-time"`
-	DeviceID   string    `json:"deviceId" api:"required"`
-	DeviceType string    `json:"deviceType" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		DeviceID    respjson.Field
-		DeviceType  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseDataDeviceBinding) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseDataDeviceBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// What this line supports in principle, per channel. Use `actions` for what you
-// can do right now.
-type NumberGetResponseDataLineCapabilities struct {
-	SMS NumberGetResponseDataLineCapabilitiesSMS `json:"sms" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		SMS         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseDataLineCapabilities) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseDataLineCapabilities) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberGetResponseDataLineCapabilitiesSMS struct {
-	// This line can receive on this channel.
-	Inbound bool `json:"inbound" api:"required"`
-	// This line can send on this channel.
-	Outbound bool `json:"outbound" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Inbound     respjson.Field
-		Outbound    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseDataLineCapabilitiesSMS) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseDataLineCapabilitiesSMS) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-// or before the first sync.
-type NumberGetResponseDataSim struct {
-	CarrierName string `json:"carrierName" api:"required"`
-	DisplayName string `json:"displayName" api:"required"`
-	SimSlot     int64  `json:"simSlot" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CarrierName respjson.Field
-		DisplayName respjson.Field
-		SimSlot     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberGetResponseDataSim) RawJSON() string { return r.JSON.raw }
-func (r *NumberGetResponseDataSim) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type NumberUpdateResponse struct {
-	Data NumberUpdateResponseData `json:"data" api:"required"`
+	Data PublicNumber `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -379,418 +415,8 @@ func (r *NumberUpdateResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type NumberUpdateResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Actions currently available for this phone number.
-	Actions           NumberUpdateResponseDataActions `json:"actions" api:"required"`
-	CancelAtPeriodEnd bool                            `json:"cancelAtPeriodEnd" api:"required"`
-	// Deprecated: use `actions.cancel`
-	//
-	// Deprecated: deprecated
-	Cancellable bool `json:"cancellable" api:"required"`
-	// Deprecated: use `actions.send`
-	//
-	// Deprecated: deprecated
-	CanSend bool `json:"canSend" api:"required"`
-	// Deprecated: use `lineCapabilities`
-	//
-	// Any of "sms", "voice".
-	//
-	// Deprecated: deprecated
-	Capabilities     []string  `json:"capabilities" api:"required"`
-	CheckoutURL      string    `json:"checkoutUrl" api:"required"`
-	CountryCode      string    `json:"countryCode" api:"required"`
-	CreatedAt        time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd time.Time `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	// The device this number is bound to, or null.
-	DeviceBinding NumberUpdateResponseDataDeviceBinding `json:"deviceBinding" api:"required"`
-	// Why setup failed. Null unless state is failed, and null when the failure has no
-	// classified reason. out_of_stock: no number is currently available for the
-	// requested country.
-	//
-	// Any of "out_of_stock", "unknown".
-	FailureReason string `json:"failureReason" api:"required"`
-	// ICCID of the SIM behind this line when a trustworthy value is known, else null.
-	Iccid string `json:"iccid" api:"required"`
-	Label string `json:"label" api:"required"`
-	// What this line supports in principle, per channel. Use `actions` for what you
-	// can do right now.
-	LineCapabilities NumberUpdateResponseDataLineCapabilities `json:"lineCapabilities" api:"required"`
-	PhoneNumber      string                                   `json:"phoneNumber" api:"required"`
-	Purpose          string                                   `json:"purpose" api:"required"`
-	// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-	// or before the first sync.
-	Sim NumberUpdateResponseDataSim `json:"sim" api:"required"`
-	// Any of "awaiting_payment", "provisioning", "active", "cancel_scheduled",
-	// "expired", "failed".
-	State     string    `json:"state" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Actions           respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		Cancellable       respjson.Field
-		CanSend           respjson.Field
-		Capabilities      respjson.Field
-		CheckoutURL       respjson.Field
-		CountryCode       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DeviceBinding     respjson.Field
-		FailureReason     respjson.Field
-		Iccid             respjson.Field
-		Label             respjson.Field
-		LineCapabilities  respjson.Field
-		PhoneNumber       respjson.Field
-		Purpose           respjson.Field
-		Sim               respjson.Field
-		State             respjson.Field
-		UpdatedAt         respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseData) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Actions currently available for this phone number.
-type NumberUpdateResponseDataActions struct {
-	// True when this number can be bound to a cloud device (active, has a phone
-	// number, receives SMS, not a BYO device line). When false,
-	// `bindDeviceBlockedReason` says why.
-	BindDevice bool `json:"bindDevice" api:"required"`
-	// Why `bindDevice` is false; null exactly when it is true.
-	//
-	// Any of "number_not_active", "no_phone_number", "sms_inbound_unsupported",
-	// "byo_device_line".
-	BindDeviceBlockedReason string `json:"bindDeviceBlockedReason" api:"required"`
-	// True when DELETE /numbers/phones/{id} would cancel or abort this number now.
-	// False once a cancellation is already scheduled; the DELETE stays idempotent.
-	Cancel bool `json:"cancel" api:"required"`
-	// True when this number passes the send gate of POST
-	// /numbers/phones/{id}/messages: self-service sending is switched on and the
-	// number is active and able to send SMS. Daily and burst limits and recipient/body
-	// checks still apply; the send endpoint stays the final judge.
-	Send bool `json:"send" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BindDevice              respjson.Field
-		BindDeviceBlockedReason respjson.Field
-		Cancel                  respjson.Field
-		Send                    respjson.Field
-		ExtraFields             map[string]respjson.Field
-		raw                     string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseDataActions) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseDataActions) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The device this number is bound to, or null.
-type NumberUpdateResponseDataDeviceBinding struct {
-	BoundAt    time.Time `json:"boundAt" api:"required" format:"date-time"`
-	DeviceID   string    `json:"deviceId" api:"required"`
-	DeviceType string    `json:"deviceType" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		DeviceID    respjson.Field
-		DeviceType  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseDataDeviceBinding) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseDataDeviceBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// What this line supports in principle, per channel. Use `actions` for what you
-// can do right now.
-type NumberUpdateResponseDataLineCapabilities struct {
-	SMS NumberUpdateResponseDataLineCapabilitiesSMS `json:"sms" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		SMS         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseDataLineCapabilities) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseDataLineCapabilities) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberUpdateResponseDataLineCapabilitiesSMS struct {
-	// This line can receive on this channel.
-	Inbound bool `json:"inbound" api:"required"`
-	// This line can send on this channel.
-	Outbound bool `json:"outbound" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Inbound     respjson.Field
-		Outbound    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseDataLineCapabilitiesSMS) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseDataLineCapabilitiesSMS) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-// or before the first sync.
-type NumberUpdateResponseDataSim struct {
-	CarrierName string `json:"carrierName" api:"required"`
-	DisplayName string `json:"displayName" api:"required"`
-	SimSlot     int64  `json:"simSlot" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CarrierName respjson.Field
-		DisplayName respjson.Field
-		SimSlot     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberUpdateResponseDataSim) RawJSON() string { return r.JSON.raw }
-func (r *NumberUpdateResponseDataSim) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberListResponse struct {
-	Items      []NumberListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination        `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponse) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberListResponseItem struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Actions currently available for this phone number.
-	Actions           NumberListResponseItemActions `json:"actions" api:"required"`
-	CancelAtPeriodEnd bool                          `json:"cancelAtPeriodEnd" api:"required"`
-	// Deprecated: use `actions.cancel`
-	//
-	// Deprecated: deprecated
-	Cancellable bool `json:"cancellable" api:"required"`
-	// Deprecated: use `actions.send`
-	//
-	// Deprecated: deprecated
-	CanSend bool `json:"canSend" api:"required"`
-	// Deprecated: use `lineCapabilities`
-	//
-	// Any of "sms", "voice".
-	//
-	// Deprecated: deprecated
-	Capabilities     []string  `json:"capabilities" api:"required"`
-	CheckoutURL      string    `json:"checkoutUrl" api:"required"`
-	CountryCode      string    `json:"countryCode" api:"required"`
-	CreatedAt        time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd time.Time `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	// The device this number is bound to, or null.
-	DeviceBinding NumberListResponseItemDeviceBinding `json:"deviceBinding" api:"required"`
-	// Why setup failed. Null unless state is failed, and null when the failure has no
-	// classified reason. out_of_stock: no number is currently available for the
-	// requested country.
-	//
-	// Any of "out_of_stock", "unknown".
-	FailureReason string `json:"failureReason" api:"required"`
-	// ICCID of the SIM behind this line when a trustworthy value is known, else null.
-	Iccid string `json:"iccid" api:"required"`
-	Label string `json:"label" api:"required"`
-	// What this line supports in principle, per channel. Use `actions` for what you
-	// can do right now.
-	LineCapabilities NumberListResponseItemLineCapabilities `json:"lineCapabilities" api:"required"`
-	PhoneNumber      string                                 `json:"phoneNumber" api:"required"`
-	Purpose          string                                 `json:"purpose" api:"required"`
-	// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-	// or before the first sync.
-	Sim NumberListResponseItemSim `json:"sim" api:"required"`
-	// Any of "awaiting_payment", "provisioning", "active", "cancel_scheduled",
-	// "expired", "failed".
-	State     string    `json:"state" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Actions           respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		Cancellable       respjson.Field
-		CanSend           respjson.Field
-		Capabilities      respjson.Field
-		CheckoutURL       respjson.Field
-		CountryCode       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DeviceBinding     respjson.Field
-		FailureReason     respjson.Field
-		Iccid             respjson.Field
-		Label             respjson.Field
-		LineCapabilities  respjson.Field
-		PhoneNumber       respjson.Field
-		Purpose           respjson.Field
-		Sim               respjson.Field
-		State             respjson.Field
-		UpdatedAt         respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Actions currently available for this phone number.
-type NumberListResponseItemActions struct {
-	// True when this number can be bound to a cloud device (active, has a phone
-	// number, receives SMS, not a BYO device line). When false,
-	// `bindDeviceBlockedReason` says why.
-	BindDevice bool `json:"bindDevice" api:"required"`
-	// Why `bindDevice` is false; null exactly when it is true.
-	//
-	// Any of "number_not_active", "no_phone_number", "sms_inbound_unsupported",
-	// "byo_device_line".
-	BindDeviceBlockedReason string `json:"bindDeviceBlockedReason" api:"required"`
-	// True when DELETE /numbers/phones/{id} would cancel or abort this number now.
-	// False once a cancellation is already scheduled; the DELETE stays idempotent.
-	Cancel bool `json:"cancel" api:"required"`
-	// True when this number passes the send gate of POST
-	// /numbers/phones/{id}/messages: self-service sending is switched on and the
-	// number is active and able to send SMS. Daily and burst limits and recipient/body
-	// checks still apply; the send endpoint stays the final judge.
-	Send bool `json:"send" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BindDevice              respjson.Field
-		BindDeviceBlockedReason respjson.Field
-		Cancel                  respjson.Field
-		Send                    respjson.Field
-		ExtraFields             map[string]respjson.Field
-		raw                     string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItemActions) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItemActions) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The device this number is bound to, or null.
-type NumberListResponseItemDeviceBinding struct {
-	BoundAt    time.Time `json:"boundAt" api:"required" format:"date-time"`
-	DeviceID   string    `json:"deviceId" api:"required"`
-	DeviceType string    `json:"deviceType" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		DeviceID    respjson.Field
-		DeviceType  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItemDeviceBinding) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItemDeviceBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// What this line supports in principle, per channel. Use `actions` for what you
-// can do right now.
-type NumberListResponseItemLineCapabilities struct {
-	SMS NumberListResponseItemLineCapabilitiesSMS `json:"sms" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		SMS         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItemLineCapabilities) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItemLineCapabilities) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberListResponseItemLineCapabilitiesSMS struct {
-	// This line can receive on this channel.
-	Inbound bool `json:"inbound" api:"required"`
-	// This line can send on this channel.
-	Outbound bool `json:"outbound" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Inbound     respjson.Field
-		Outbound    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItemLineCapabilitiesSMS) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItemLineCapabilitiesSMS) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-// or before the first sync.
-type NumberListResponseItemSim struct {
-	CarrierName string `json:"carrierName" api:"required"`
-	DisplayName string `json:"displayName" api:"required"`
-	SimSlot     int64  `json:"simSlot" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CarrierName respjson.Field
-		DisplayName respjson.Field
-		SimSlot     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberListResponseItemSim) RawJSON() string { return r.JSON.raw }
-func (r *NumberListResponseItemSim) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type NumberDeleteResponse struct {
-	Data NumberDeleteResponseData `json:"data" api:"required"`
+	Data PublicNumber `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -802,202 +428,6 @@ type NumberDeleteResponse struct {
 // Returns the unmodified JSON received from the API
 func (r NumberDeleteResponse) RawJSON() string { return r.JSON.raw }
 func (r *NumberDeleteResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberDeleteResponseData struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Actions currently available for this phone number.
-	Actions           NumberDeleteResponseDataActions `json:"actions" api:"required"`
-	CancelAtPeriodEnd bool                            `json:"cancelAtPeriodEnd" api:"required"`
-	// Deprecated: use `actions.cancel`
-	//
-	// Deprecated: deprecated
-	Cancellable bool `json:"cancellable" api:"required"`
-	// Deprecated: use `actions.send`
-	//
-	// Deprecated: deprecated
-	CanSend bool `json:"canSend" api:"required"`
-	// Deprecated: use `lineCapabilities`
-	//
-	// Any of "sms", "voice".
-	//
-	// Deprecated: deprecated
-	Capabilities     []string  `json:"capabilities" api:"required"`
-	CheckoutURL      string    `json:"checkoutUrl" api:"required"`
-	CountryCode      string    `json:"countryCode" api:"required"`
-	CreatedAt        time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CurrentPeriodEnd time.Time `json:"currentPeriodEnd" api:"required" format:"date-time"`
-	// The device this number is bound to, or null.
-	DeviceBinding NumberDeleteResponseDataDeviceBinding `json:"deviceBinding" api:"required"`
-	// Why setup failed. Null unless state is failed, and null when the failure has no
-	// classified reason. out_of_stock: no number is currently available for the
-	// requested country.
-	//
-	// Any of "out_of_stock", "unknown".
-	FailureReason string `json:"failureReason" api:"required"`
-	// ICCID of the SIM behind this line when a trustworthy value is known, else null.
-	Iccid string `json:"iccid" api:"required"`
-	Label string `json:"label" api:"required"`
-	// What this line supports in principle, per channel. Use `actions` for what you
-	// can do right now.
-	LineCapabilities NumberDeleteResponseDataLineCapabilities `json:"lineCapabilities" api:"required"`
-	PhoneNumber      string                                   `json:"phoneNumber" api:"required"`
-	Purpose          string                                   `json:"purpose" api:"required"`
-	// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-	// or before the first sync.
-	Sim NumberDeleteResponseDataSim `json:"sim" api:"required"`
-	// Any of "awaiting_payment", "provisioning", "active", "cancel_scheduled",
-	// "expired", "failed".
-	State     string    `json:"state" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		Actions           respjson.Field
-		CancelAtPeriodEnd respjson.Field
-		Cancellable       respjson.Field
-		CanSend           respjson.Field
-		Capabilities      respjson.Field
-		CheckoutURL       respjson.Field
-		CountryCode       respjson.Field
-		CreatedAt         respjson.Field
-		CurrentPeriodEnd  respjson.Field
-		DeviceBinding     respjson.Field
-		FailureReason     respjson.Field
-		Iccid             respjson.Field
-		Label             respjson.Field
-		LineCapabilities  respjson.Field
-		PhoneNumber       respjson.Field
-		Purpose           respjson.Field
-		Sim               respjson.Field
-		State             respjson.Field
-		UpdatedAt         respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseData) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Actions currently available for this phone number.
-type NumberDeleteResponseDataActions struct {
-	// True when this number can be bound to a cloud device (active, has a phone
-	// number, receives SMS, not a BYO device line). When false,
-	// `bindDeviceBlockedReason` says why.
-	BindDevice bool `json:"bindDevice" api:"required"`
-	// Why `bindDevice` is false; null exactly when it is true.
-	//
-	// Any of "number_not_active", "no_phone_number", "sms_inbound_unsupported",
-	// "byo_device_line".
-	BindDeviceBlockedReason string `json:"bindDeviceBlockedReason" api:"required"`
-	// True when DELETE /numbers/phones/{id} would cancel or abort this number now.
-	// False once a cancellation is already scheduled; the DELETE stays idempotent.
-	Cancel bool `json:"cancel" api:"required"`
-	// True when this number passes the send gate of POST
-	// /numbers/phones/{id}/messages: self-service sending is switched on and the
-	// number is active and able to send SMS. Daily and burst limits and recipient/body
-	// checks still apply; the send endpoint stays the final judge.
-	Send bool `json:"send" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BindDevice              respjson.Field
-		BindDeviceBlockedReason respjson.Field
-		Cancel                  respjson.Field
-		Send                    respjson.Field
-		ExtraFields             map[string]respjson.Field
-		raw                     string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseDataActions) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseDataActions) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The device this number is bound to, or null.
-type NumberDeleteResponseDataDeviceBinding struct {
-	BoundAt    time.Time `json:"boundAt" api:"required" format:"date-time"`
-	DeviceID   string    `json:"deviceId" api:"required"`
-	DeviceType string    `json:"deviceType" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		DeviceID    respjson.Field
-		DeviceType  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseDataDeviceBinding) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseDataDeviceBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// What this line supports in principle, per channel. Use `actions` for what you
-// can do right now.
-type NumberDeleteResponseDataLineCapabilities struct {
-	SMS NumberDeleteResponseDataLineCapabilitiesSMS `json:"sms" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		SMS         respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseDataLineCapabilities) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseDataLineCapabilities) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberDeleteResponseDataLineCapabilitiesSMS struct {
-	// This line can receive on this channel.
-	Inbound bool `json:"inbound" api:"required"`
-	// This line can send on this channel.
-	Outbound bool `json:"outbound" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Inbound     respjson.Field
-		Outbound    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseDataLineCapabilitiesSMS) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseDataLineCapabilitiesSMS) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// SIM of a phone connected through the Mobilerun Portal app; null for other phones
-// or before the first sync.
-type NumberDeleteResponseDataSim struct {
-	CarrierName string `json:"carrierName" api:"required"`
-	DisplayName string `json:"displayName" api:"required"`
-	SimSlot     int64  `json:"simSlot" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CarrierName respjson.Field
-		DisplayName respjson.Field
-		SimSlot     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberDeleteResponseDataSim) RawJSON() string { return r.JSON.raw }
-func (r *NumberDeleteResponseDataSim) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

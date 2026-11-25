@@ -67,6 +67,16 @@ func (r *DeviceRecordingService) Delete(ctx context.Context, recordingID string,
 	return err
 }
 
+// Recordings whose files are still stored across all devices, newest first,
+// including files whose device has been removed. Expired recordings are excluded.
+// Pass nextCursor as cursor to retrieve the next page.
+func (r *DeviceRecordingService) ListAll(ctx context.Context, query DeviceRecordingListAllParams, opts ...option.RequestOption) (res *DeviceRecordingListAllResponse, err error) {
+	opts = slices.Concat(r.options, opts)
+	path := "devices/recordings"
+	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
+	return res, err
+}
+
 // Screenshots saved into the recording with
 // `GET /devices/{deviceId}/screenshot?save=true`, oldest first, each with a
 // presigned download URL.
@@ -163,6 +173,30 @@ func (r *DeviceRecordingService) Video(ctx context.Context, recordingID string, 
 	return err
 }
 
+type VideoInfo struct {
+	DurationMs  int64  `json:"durationMs" api:"required"`
+	Format      string `json:"format" api:"required"`
+	SizeBytes   int64  `json:"sizeBytes" api:"required"`
+	Limited     bool   `json:"limited"`
+	LimitReason string `json:"limitReason"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		DurationMs  respjson.Field
+		Format      respjson.Field
+		SizeBytes   respjson.Field
+		Limited     respjson.Field
+		LimitReason respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r VideoInfo) RawJSON() string { return r.JSON.raw }
+func (r *VideoInfo) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type DeviceRecordingListResponse struct {
 	ID        string                             `json:"id" api:"required"`
 	Actions   int64                              `json:"actions" api:"required"`
@@ -174,10 +208,10 @@ type DeviceRecordingListResponse struct {
 	Status    string                             `json:"status" api:"required"`
 	Types     []string                           `json:"types" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema  string                           `json:"$schema" format:"uri"`
-	EndedAt time.Time                        `json:"endedAt" format:"date-time"`
-	Error   string                           `json:"error"`
-	Video   DeviceRecordingListResponseVideo `json:"video"`
+	Schema  string    `json:"$schema" format:"uri"`
+	EndedAt time.Time `json:"endedAt" format:"date-time"`
+	Error   string    `json:"error"`
+	Video   VideoInfo `json:"video"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -224,27 +258,85 @@ func (r *DeviceRecordingListResponseDisplay) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceRecordingListResponseVideo struct {
-	DurationMs  int64  `json:"durationMs" api:"required"`
-	Format      string `json:"format" api:"required"`
-	SizeBytes   int64  `json:"sizeBytes" api:"required"`
-	Limited     bool   `json:"limited"`
-	LimitReason string `json:"limitReason"`
+type DeviceRecordingListAllResponse struct {
+	Items      []DeviceRecordingListAllResponseItem `json:"items" api:"required"`
+	NextCursor string                               `json:"nextCursor" api:"required"`
+	// A URL to the JSON Schema for this object.
+	Schema string `json:"$schema" format:"uri"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
-		DurationMs  respjson.Field
-		Format      respjson.Field
-		SizeBytes   respjson.Field
-		Limited     respjson.Field
-		LimitReason respjson.Field
+		Items       respjson.Field
+		NextCursor  respjson.Field
+		Schema      respjson.Field
 		ExtraFields map[string]respjson.Field
 		raw         string
 	} `json:"-"`
 }
 
 // Returns the unmodified JSON received from the API
-func (r DeviceRecordingListResponseVideo) RawJSON() string { return r.JSON.raw }
-func (r *DeviceRecordingListResponseVideo) UnmarshalJSON(data []byte) error {
+func (r DeviceRecordingListAllResponse) RawJSON() string { return r.JSON.raw }
+func (r *DeviceRecordingListAllResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type DeviceRecordingListAllResponseItem struct {
+	ID        string                                    `json:"id" api:"required"`
+	Actions   int64                                     `json:"actions" api:"required"`
+	DeviceID  string                                    `json:"deviceId" api:"required"`
+	Display   DeviceRecordingListAllResponseItemDisplay `json:"display" api:"required"`
+	ExpiresAt time.Time                                 `json:"expiresAt" api:"required" format:"date-time"`
+	Name      string                                    `json:"name" api:"required"`
+	StartedAt time.Time                                 `json:"startedAt" api:"required" format:"date-time"`
+	Status    string                                    `json:"status" api:"required"`
+	Types     []string                                  `json:"types" api:"required"`
+	// A URL to the JSON Schema for this object.
+	Schema  string    `json:"$schema" format:"uri"`
+	EndedAt time.Time `json:"endedAt" format:"date-time"`
+	Error   string    `json:"error"`
+	Video   VideoInfo `json:"video"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID          respjson.Field
+		Actions     respjson.Field
+		DeviceID    respjson.Field
+		Display     respjson.Field
+		ExpiresAt   respjson.Field
+		Name        respjson.Field
+		StartedAt   respjson.Field
+		Status      respjson.Field
+		Types       respjson.Field
+		Schema      respjson.Field
+		EndedAt     respjson.Field
+		Error       respjson.Field
+		Video       respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r DeviceRecordingListAllResponseItem) RawJSON() string { return r.JSON.raw }
+func (r *DeviceRecordingListAllResponseItem) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type DeviceRecordingListAllResponseItemDisplay struct {
+	Height   int64 `json:"height" api:"required"`
+	Rotation int64 `json:"rotation" api:"required"`
+	Width    int64 `json:"width" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Height      respjson.Field
+		Rotation    respjson.Field
+		Width       respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r DeviceRecordingListAllResponseItemDisplay) RawJSON() string { return r.JSON.raw }
+func (r *DeviceRecordingListAllResponseItemDisplay) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -282,10 +374,10 @@ type DeviceRecordingStartResponse struct {
 	Status    string                              `json:"status" api:"required"`
 	Types     []string                            `json:"types" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema  string                            `json:"$schema" format:"uri"`
-	EndedAt time.Time                         `json:"endedAt" format:"date-time"`
-	Error   string                            `json:"error"`
-	Video   DeviceRecordingStartResponseVideo `json:"video"`
+	Schema  string    `json:"$schema" format:"uri"`
+	EndedAt time.Time `json:"endedAt" format:"date-time"`
+	Error   string    `json:"error"`
+	Video   VideoInfo `json:"video"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -332,30 +424,6 @@ func (r *DeviceRecordingStartResponseDisplay) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceRecordingStartResponseVideo struct {
-	DurationMs  int64  `json:"durationMs" api:"required"`
-	Format      string `json:"format" api:"required"`
-	SizeBytes   int64  `json:"sizeBytes" api:"required"`
-	Limited     bool   `json:"limited"`
-	LimitReason string `json:"limitReason"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		DurationMs  respjson.Field
-		Format      respjson.Field
-		SizeBytes   respjson.Field
-		Limited     respjson.Field
-		LimitReason respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceRecordingStartResponseVideo) RawJSON() string { return r.JSON.raw }
-func (r *DeviceRecordingStartResponseVideo) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceRecordingStatusResponse struct {
 	ID        string                               `json:"id" api:"required"`
 	Actions   int64                                `json:"actions" api:"required"`
@@ -367,10 +435,10 @@ type DeviceRecordingStatusResponse struct {
 	Status    string                               `json:"status" api:"required"`
 	Types     []string                             `json:"types" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema  string                             `json:"$schema" format:"uri"`
-	EndedAt time.Time                          `json:"endedAt" format:"date-time"`
-	Error   string                             `json:"error"`
-	Video   DeviceRecordingStatusResponseVideo `json:"video"`
+	Schema  string    `json:"$schema" format:"uri"`
+	EndedAt time.Time `json:"endedAt" format:"date-time"`
+	Error   string    `json:"error"`
+	Video   VideoInfo `json:"video"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -417,30 +485,6 @@ func (r *DeviceRecordingStatusResponseDisplay) UnmarshalJSON(data []byte) error 
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceRecordingStatusResponseVideo struct {
-	DurationMs  int64  `json:"durationMs" api:"required"`
-	Format      string `json:"format" api:"required"`
-	SizeBytes   int64  `json:"sizeBytes" api:"required"`
-	Limited     bool   `json:"limited"`
-	LimitReason string `json:"limitReason"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		DurationMs  respjson.Field
-		Format      respjson.Field
-		SizeBytes   respjson.Field
-		Limited     respjson.Field
-		LimitReason respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceRecordingStatusResponseVideo) RawJSON() string { return r.JSON.raw }
-func (r *DeviceRecordingStatusResponseVideo) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceRecordingStopResponse struct {
 	ID        string                             `json:"id" api:"required"`
 	Actions   int64                              `json:"actions" api:"required"`
@@ -452,10 +496,10 @@ type DeviceRecordingStopResponse struct {
 	Status    string                             `json:"status" api:"required"`
 	Types     []string                           `json:"types" api:"required"`
 	// A URL to the JSON Schema for this object.
-	Schema  string                           `json:"$schema" format:"uri"`
-	EndedAt time.Time                        `json:"endedAt" format:"date-time"`
-	Error   string                           `json:"error"`
-	Video   DeviceRecordingStopResponseVideo `json:"video"`
+	Schema  string    `json:"$schema" format:"uri"`
+	EndedAt time.Time `json:"endedAt" format:"date-time"`
+	Error   string    `json:"error"`
+	Video   VideoInfo `json:"video"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -502,30 +546,6 @@ func (r *DeviceRecordingStopResponseDisplay) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceRecordingStopResponseVideo struct {
-	DurationMs  int64  `json:"durationMs" api:"required"`
-	Format      string `json:"format" api:"required"`
-	SizeBytes   int64  `json:"sizeBytes" api:"required"`
-	Limited     bool   `json:"limited"`
-	LimitReason string `json:"limitReason"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		DurationMs  respjson.Field
-		Format      respjson.Field
-		SizeBytes   respjson.Field
-		Limited     respjson.Field
-		LimitReason respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceRecordingStopResponseVideo) RawJSON() string { return r.JSON.raw }
-func (r *DeviceRecordingStopResponseVideo) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceRecordingListParams struct {
 	Status param.Opt[string] `query:"status,omitzero" json:"-"`
 	Type   param.Opt[string] `query:"type,omitzero" json:"-"`
@@ -544,6 +564,24 @@ func (r DeviceRecordingListParams) URLQuery() (v url.Values, err error) {
 type DeviceRecordingDeleteParams struct {
 	DeviceID string `path:"deviceId" api:"required" json:"-"`
 	paramObj
+}
+
+type DeviceRecordingListAllParams struct {
+	Cursor   param.Opt[string] `query:"cursor,omitzero" json:"-"`
+	DeviceID param.Opt[string] `query:"deviceId,omitzero" format:"uuid" json:"-"`
+	Limit    param.Opt[int64]  `query:"limit,omitzero" json:"-"`
+	Status   param.Opt[string] `query:"status,omitzero" json:"-"`
+	Type     param.Opt[string] `query:"type,omitzero" json:"-"`
+	paramObj
+}
+
+// URLQuery serializes [DeviceRecordingListAllParams]'s query parameters as
+// `url.Values`.
+func (r DeviceRecordingListAllParams) URLQuery() (v url.Values, err error) {
+	return apiquery.MarshalWithSettings(r, apiquery.QuerySettings{
+		ArrayFormat:  apiquery.ArrayQueryFormatComma,
+		NestedFormat: apiquery.NestedQueryFormatBrackets,
+	})
 }
 
 type DeviceRecordingScreenshotsParams struct {

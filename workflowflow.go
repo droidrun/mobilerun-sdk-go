@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // WorkflowFlowService contains methods and other services that help with
@@ -99,11 +99,30 @@ func (r *WorkflowFlowService) Update(ctx context.Context, flowID string, body Wo
 // `status` values (healthy, failing, blocked), `mine` (flows created by the
 // calling actor), `createdBy` (flows created by a given actor id — mutually
 // exclusive with `mine`), plus free-text `search` and ordering.
-func (r *WorkflowFlowService) List(ctx context.Context, query WorkflowFlowListParams, opts ...option.RequestOption) (res *WorkflowFlowListResponse, err error) {
+func (r *WorkflowFlowService) List(ctx context.Context, query WorkflowFlowListParams, opts ...option.RequestOption) (res *pagination.Page[WorkflowFlowListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "flows"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Return a paginated list of flows. Supports filtering by `agentId` (UUID or
+// `unassigned`; omit for all buckets), `triggerId`, `enabled`, one or more health
+// `status` values (healthy, failing, blocked), `mine` (flows created by the
+// calling actor), `createdBy` (flows created by a given actor id — mutually
+// exclusive with `mine`), plus free-text `search` and ordering.
+func (r *WorkflowFlowService) ListAutoPaging(ctx context.Context, query WorkflowFlowListParams, opts ...option.RequestOption) *pagination.PageAutoPager[WorkflowFlowListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Terminally archive a flow by its ID. Archived flows cannot be restored and are
@@ -446,8 +465,8 @@ type WorkflowFlowNewResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                       `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowNewResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -569,23 +588,6 @@ func (r *WorkflowFlowNewResponseDataDeliveryRecording) UnmarshalJSON(data []byte
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowNewResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowNewResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowNewResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowGetResponse struct {
 	Data WorkflowFlowGetResponseData `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -645,8 +647,8 @@ type WorkflowFlowGetResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                       `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowGetResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -809,23 +811,6 @@ func (r *WorkflowFlowGetResponseDataHealth) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowGetResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowGetResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowGetResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowUpdateResponse struct {
 	Data WorkflowFlowUpdateResponseData `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -884,8 +869,8 @@ type WorkflowFlowUpdateResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                          `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowUpdateResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -1007,55 +992,20 @@ func (r *WorkflowFlowUpdateResponseDataDeliveryRecording) UnmarshalJSON(data []b
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowUpdateResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowUpdateResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowUpdateResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowListResponse struct {
-	Items      []WorkflowFlowListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination              `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowListResponse) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowListResponseItem struct {
 	ID                  string    `json:"id" api:"required" format:"uuid"`
 	AgentID             string    `json:"agentId" api:"required" format:"uuid"`
 	ArchivedAt          time.Time `json:"archivedAt" api:"required" format:"date-time"`
 	BlockedAt           time.Time `json:"blockedAt" api:"required" format:"date-time"`
 	ConsecutiveFailures int64     `json:"consecutiveFailures" api:"required"`
 	// Any of "flow", "device".
-	CooldownScope   string                               `json:"cooldownScope" api:"required"`
-	CooldownSeconds int64                                `json:"cooldownSeconds" api:"required"`
-	CreatedAt       time.Time                            `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy       string                               `json:"createdBy" api:"required" format:"uuid"`
-	Delivery        WorkflowFlowListResponseItemDelivery `json:"delivery" api:"required"`
-	Description     string                               `json:"description" api:"required"`
-	DeviceIDs       []string                             `json:"deviceIds" api:"required" format:"uuid"`
+	CooldownScope   WorkflowFlowListResponseCooldownScope `json:"cooldownScope" api:"required"`
+	CooldownSeconds int64                                 `json:"cooldownSeconds" api:"required"`
+	CreatedAt       time.Time                             `json:"createdAt" api:"required" format:"date-time"`
+	CreatedBy       string                                `json:"createdBy" api:"required" format:"uuid"`
+	Delivery        WorkflowFlowListResponseDelivery      `json:"delivery" api:"required"`
+	Description     string                                `json:"description" api:"required"`
+	DeviceIDs       []string                              `json:"deviceIds" api:"required" format:"uuid"`
 	// Compatibility projection of lifecycleStatus; true only when lifecycleStatus is
 	// enabled.
 	Enabled                 bool      `json:"enabled" api:"required"`
@@ -1067,35 +1017,35 @@ type WorkflowFlowListResponseItem struct {
 	//
 	// Any of "device_not_found", "device_unavailable", "permission_denied",
 	// "client_error", "transient", "logic", "invalid_config".
-	LastFailureCode string    `json:"lastFailureCode" api:"required"`
-	LastTriggeredAt time.Time `json:"lastTriggeredAt" api:"required" format:"date-time"`
+	LastFailureCode WorkflowFlowListResponseLastFailureCode `json:"lastFailureCode" api:"required"`
+	LastTriggeredAt time.Time                               `json:"lastTriggeredAt" api:"required" format:"date-time"`
 	// Any of "enabled", "disabled", "archived".
-	LifecycleStatus string `json:"lifecycleStatus" api:"required"`
-	Name            string `json:"name" api:"required"`
-	NotifyOnFailure bool   `json:"notifyOnFailure" api:"required"`
-	NotifyOnSuccess bool   `json:"notifyOnSuccess" api:"required"`
-	NotifyWebhookID string `json:"notifyWebhookId" api:"required" format:"uuid"`
-	OwnerID         string `json:"ownerId" api:"required" format:"uuid"`
+	LifecycleStatus WorkflowFlowListResponseLifecycleStatus `json:"lifecycleStatus" api:"required"`
+	Name            string                                  `json:"name" api:"required"`
+	NotifyOnFailure bool                                    `json:"notifyOnFailure" api:"required"`
+	NotifyOnSuccess bool                                    `json:"notifyOnSuccess" api:"required"`
+	NotifyWebhookID string                                  `json:"notifyWebhookId" api:"required" format:"uuid"`
+	OwnerID         string                                  `json:"ownerId" api:"required" format:"uuid"`
 	// Defaults to final.
 	//
 	// Any of "final", "off".
-	OwnerWake string `json:"ownerWake" api:"required"`
+	OwnerWake WorkflowFlowListResponseOwnerWake `json:"ownerWake" api:"required"`
 	// Deprecated: use recordingPolicy.mode ("flow" = recordingEnabled=true, "off" =
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                        `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowListResponseItemRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
 	// Any of "none", "message", "wake".
-	ResultDelivery         string `json:"resultDelivery" api:"required"`
-	SaveSandboxLogs        bool   `json:"saveSandboxLogs" api:"required"`
-	SelfHealingEnabled     bool   `json:"selfHealingEnabled" api:"required"`
-	SelfHealingMaxAttempts int64  `json:"selfHealingMaxAttempts" api:"required"`
+	ResultDelivery         WorkflowFlowListResponseResultDelivery `json:"resultDelivery" api:"required"`
+	SaveSandboxLogs        bool                                   `json:"saveSandboxLogs" api:"required"`
+	SelfHealingEnabled     bool                                   `json:"selfHealingEnabled" api:"required"`
+	SelfHealingMaxAttempts int64                                  `json:"selfHealingMaxAttempts" api:"required"`
 	// Any of "healthy", "failing", "blocked".
-	Status string `json:"status" api:"required"`
+	Status WorkflowFlowListResponseStatus `json:"status" api:"required"`
 	// Template-resolver semantics this flow runs under. 1 = legacy
 	// (missing/forbidden/null all resolve to ”). 2 = typed (missing/forbidden throw,
 	// a whole-token null stays JSON null). 3 = typed, key-based (steps are addressed
@@ -1151,12 +1101,19 @@ type WorkflowFlowListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WorkflowFlowListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowListResponseItem) UnmarshalJSON(data []byte) error {
+func (r WorkflowFlowListResponse) RawJSON() string { return r.JSON.raw }
+func (r *WorkflowFlowListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowListResponseItemDelivery struct {
+type WorkflowFlowListResponseCooldownScope string
+
+const (
+	WorkflowFlowListResponseCooldownScopeFlow   WorkflowFlowListResponseCooldownScope = "flow"
+	WorkflowFlowListResponseCooldownScopeDevice WorkflowFlowListResponseCooldownScope = "device"
+)
+
+type WorkflowFlowListResponseDelivery struct {
 	// Any of "mobilerun", "one_drive", "google_drive".
 	Destination string `json:"destination" api:"required"`
 	// Absolute destination folder. For destination mobilerun, a folder turns on saving
@@ -1171,9 +1128,9 @@ type WorkflowFlowListResponseItemDelivery struct {
 	// placeholder folder, and into a per-run "<flow>-<timestamp>-<id>-screenshots"
 	// subfolder with a static folder. Mobilerun copies always go directly into the
 	// folder.
-	Folder      string                                        `json:"folder"`
-	Recording   WorkflowFlowListResponseItemDeliveryRecording `json:"recording"`
-	Screenshots any                                           `json:"screenshots"`
+	Folder      string                                    `json:"folder"`
+	Recording   WorkflowFlowListResponseDeliveryRecording `json:"recording"`
+	Screenshots any                                       `json:"screenshots"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Destination respjson.Field
@@ -1186,12 +1143,12 @@ type WorkflowFlowListResponseItemDelivery struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WorkflowFlowListResponseItemDelivery) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowListResponseItemDelivery) UnmarshalJSON(data []byte) error {
+func (r WorkflowFlowListResponseDelivery) RawJSON() string { return r.JSON.raw }
+func (r *WorkflowFlowListResponseDelivery) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowListResponseItemDeliveryRecording struct {
+type WorkflowFlowListResponseDeliveryRecording struct {
 	Filename string `json:"filename" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
@@ -1202,27 +1159,59 @@ type WorkflowFlowListResponseItemDeliveryRecording struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r WorkflowFlowListResponseItemDeliveryRecording) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowListResponseItemDeliveryRecording) UnmarshalJSON(data []byte) error {
+func (r WorkflowFlowListResponseDeliveryRecording) RawJSON() string { return r.JSON.raw }
+func (r *WorkflowFlowListResponseDeliveryRecording) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowListResponseItemRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
+// Curated flow failure class. device_unavailable blocks immediately for a
+// terminated device or a device confirmed gone; event deviceState="gone" is
+// triggers-defined for a deleted/not-found device.
+type WorkflowFlowListResponseLastFailureCode string
 
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowListResponseItemRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowListResponseItemRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
+const (
+	WorkflowFlowListResponseLastFailureCodeDeviceNotFound    WorkflowFlowListResponseLastFailureCode = "device_not_found"
+	WorkflowFlowListResponseLastFailureCodeDeviceUnavailable WorkflowFlowListResponseLastFailureCode = "device_unavailable"
+	WorkflowFlowListResponseLastFailureCodePermissionDenied  WorkflowFlowListResponseLastFailureCode = "permission_denied"
+	WorkflowFlowListResponseLastFailureCodeClientError       WorkflowFlowListResponseLastFailureCode = "client_error"
+	WorkflowFlowListResponseLastFailureCodeTransient         WorkflowFlowListResponseLastFailureCode = "transient"
+	WorkflowFlowListResponseLastFailureCodeLogic             WorkflowFlowListResponseLastFailureCode = "logic"
+	WorkflowFlowListResponseLastFailureCodeInvalidConfig     WorkflowFlowListResponseLastFailureCode = "invalid_config"
+)
+
+type WorkflowFlowListResponseLifecycleStatus string
+
+const (
+	WorkflowFlowListResponseLifecycleStatusEnabled  WorkflowFlowListResponseLifecycleStatus = "enabled"
+	WorkflowFlowListResponseLifecycleStatusDisabled WorkflowFlowListResponseLifecycleStatus = "disabled"
+	WorkflowFlowListResponseLifecycleStatusArchived WorkflowFlowListResponseLifecycleStatus = "archived"
+)
+
+// Defaults to final.
+type WorkflowFlowListResponseOwnerWake string
+
+const (
+	WorkflowFlowListResponseOwnerWakeFinal WorkflowFlowListResponseOwnerWake = "final"
+	WorkflowFlowListResponseOwnerWakeOff   WorkflowFlowListResponseOwnerWake = "off"
+)
+
+// Effective routine result delivery: the stored setting, else message for a chat
+// sink, else none.
+type WorkflowFlowListResponseResultDelivery string
+
+const (
+	WorkflowFlowListResponseResultDeliveryNone    WorkflowFlowListResponseResultDelivery = "none"
+	WorkflowFlowListResponseResultDeliveryMessage WorkflowFlowListResponseResultDelivery = "message"
+	WorkflowFlowListResponseResultDeliveryWake    WorkflowFlowListResponseResultDelivery = "wake"
+)
+
+type WorkflowFlowListResponseStatus string
+
+const (
+	WorkflowFlowListResponseStatusHealthy WorkflowFlowListResponseStatus = "healthy"
+	WorkflowFlowListResponseStatusFailing WorkflowFlowListResponseStatus = "failing"
+	WorkflowFlowListResponseStatusBlocked WorkflowFlowListResponseStatus = "blocked"
+)
 
 type WorkflowFlowDeleteResponse struct {
 	Message string `json:"message" api:"required"`
@@ -1298,8 +1287,8 @@ type WorkflowFlowActivateResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                            `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowActivateResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -1421,23 +1410,6 @@ func (r *WorkflowFlowActivateResponseDataDeliveryRecording) UnmarshalJSON(data [
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowActivateResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowActivateResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowActivateResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowCapacityResponse struct {
 	Data WorkflowFlowCapacityResponseData `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -1533,8 +1505,8 @@ type WorkflowFlowCloneResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                         `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowCloneResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -1656,23 +1628,6 @@ func (r *WorkflowFlowCloneResponseDataDeliveryRecording) UnmarshalJSON(data []by
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowFlowCloneResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowCloneResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowCloneResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowFlowNewFromDocumentResponse struct {
 	Data WorkflowFlowNewFromDocumentResponseData `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -1749,8 +1704,8 @@ type WorkflowFlowNewFromDocumentResponseDataFlow struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                                       `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowNewFromDocumentResponseDataFlowRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -1871,25 +1826,6 @@ func (r WorkflowFlowNewFromDocumentResponseDataFlowDeliveryRecording) RawJSON() 
 	return r.JSON.raw
 }
 func (r *WorkflowFlowNewFromDocumentResponseDataFlowDeliveryRecording) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowNewFromDocumentResponseDataFlowRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowNewFromDocumentResponseDataFlowRecordingPolicy) RawJSON() string {
-	return r.JSON.raw
-}
-func (r *WorkflowFlowNewFromDocumentResponseDataFlowRecordingPolicy) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -2354,8 +2290,8 @@ type WorkflowFlowReplaceDocumentResponseDataFlow struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                                       `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowReplaceDocumentResponseDataFlowRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -2476,25 +2412,6 @@ func (r WorkflowFlowReplaceDocumentResponseDataFlowDeliveryRecording) RawJSON() 
 	return r.JSON.raw
 }
 func (r *WorkflowFlowReplaceDocumentResponseDataFlowDeliveryRecording) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowReplaceDocumentResponseDataFlowRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowReplaceDocumentResponseDataFlowRecordingPolicy) RawJSON() string {
-	return r.JSON.raw
-}
-func (r *WorkflowFlowReplaceDocumentResponseDataFlowRecordingPolicy) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -2861,8 +2778,8 @@ type WorkflowFlowUnblockResponseData struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                           `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowFlowUnblockResponseDataRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -2981,23 +2898,6 @@ type WorkflowFlowUnblockResponseDataDeliveryRecording struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowFlowUnblockResponseDataDeliveryRecording) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowFlowUnblockResponseDataDeliveryRecording) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowFlowUnblockResponseDataRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowFlowUnblockResponseDataRecordingPolicy) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowFlowUnblockResponseDataRecordingPolicy) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -4387,10 +4287,10 @@ func init() {
 
 // The properties Cadence, EventType, ScheduleRule, Timezone, Type are required.
 type WorkflowFlowValidateParamsBodyObject2ContractMetaTrigger struct {
-	Cadence      param.Opt[string]                                                    `json:"cadence,omitzero" api:"required"`
-	EventType    param.Opt[string]                                                    `json:"eventType,omitzero" api:"required"`
-	Timezone     param.Opt[string]                                                    `json:"timezone,omitzero" api:"required"`
-	ScheduleRule WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule `json:"scheduleRule,omitzero" api:"required"`
+	Cadence      param.Opt[string] `json:"cadence,omitzero" api:"required"`
+	EventType    param.Opt[string] `json:"eventType,omitzero" api:"required"`
+	Timezone     param.Opt[string] `json:"timezone,omitzero" api:"required"`
+	ScheduleRule ScheduleRuleParam `json:"scheduleRule,omitzero" api:"required"`
 	// Any of "schedule", "app_event", "device_event", "platform_event", "custom".
 	Type string `json:"type,omitzero" api:"required"`
 	// Optional; derived from trigger.type with agent_routine.
@@ -4415,51 +4315,6 @@ func init() {
 	apijson.RegisterFieldValidator[WorkflowFlowValidateParamsBodyObject2ContractMetaTrigger](
 		"activation", "event", "schedule", "custom",
 	)
-}
-
-// The property Type is required.
-type WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type,omitzero" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime param.Opt[string] `json:"dateTime,omitzero"`
-	// Cron expression (for type=cron)
-	Expression param.Opt[string] `json:"expression,omitzero"`
-	// RRULE string (for type=recurring)
-	Rrule param.Opt[string] `json:"rrule,omitzero"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter      WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRuleJitter `json:"jitter,omitzero"`
-	ExtraFields map[string]any                                                             `json:"-"`
-	paramObj
-}
-
-func (r WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule) MarshalJSON() (data []byte, err error) {
-	type shadow WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule
-	return param.MarshalWithExtras(r, (*shadow)(&r), r.ExtraFields)
-}
-func (r *WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-func init() {
-	apijson.RegisterFieldValidator[WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRule](
-		"type", "once", "cron", "recurring",
-	)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRuleJitter struct {
-	AfterMinutes  param.Opt[int64] `json:"afterMinutes,omitzero"`
-	BeforeMinutes param.Opt[int64] `json:"beforeMinutes,omitzero"`
-	paramObj
-}
-
-func (r WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRuleJitter) MarshalJSON() (data []byte, err error) {
-	type shadow WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRuleJitter
-	return param.MarshalObject(r, (*shadow)(&r))
-}
-func (r *WorkflowFlowValidateParamsBodyObject2ContractMetaTriggerScheduleRuleJitter) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
 }
 
 // The properties Method, Role are required.
