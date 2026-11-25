@@ -26,7 +26,7 @@ Or to pin the version:
 <!-- x-release-please-start-version -->
 
 ```sh
-go get -u 'github.com/droidrun/mobilerun-sdk-go/v6@v6.4.0'
+go get -u 'github.com/droidrun/mobilerun-sdk-go/v6@v6.5.0'
 ```
 
 <!-- x-release-please-end -->
