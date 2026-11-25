@@ -101,6 +101,35 @@ func (r *ProxyService) Delete(ctx context.Context, proxyID string, opts ...optio
 	return res, err
 }
 
+type WireguardProxyConfig struct {
+	Config string `json:"config" api:"required"`
+	Name   string `json:"name" api:"required"`
+	// Any of "wireguard".
+	Protocol WireguardProxyConfigProtocol `json:"protocol" api:"required"`
+	ProxyID  string                       `json:"proxyId" api:"required" format:"uuid"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Config      respjson.Field
+		Name        respjson.Field
+		Protocol    respjson.Field
+		ProxyID     respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r WireguardProxyConfig) RawJSON() string { return r.JSON.raw }
+func (r *WireguardProxyConfig) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type WireguardProxyConfigProtocol string
+
+const (
+	WireguardProxyConfigProtocolWireguard WireguardProxyConfigProtocol = "wireguard"
+)
+
 type ProxyNewResponse struct {
 	Data    ProxyNewResponseDataUnion `json:"data" api:"required"`
 	Message string                    `json:"message" api:"required"`
@@ -123,7 +152,7 @@ func (r *ProxyNewResponse) UnmarshalJSON(data []byte) error {
 }
 
 // ProxyNewResponseDataUnion contains all possible properties and values from
-// [shared.Socks5ProxyConfig], [ProxyNewResponseDataWireguard].
+// [shared.Socks5ProxyConfig], [WireguardProxyConfig].
 //
 // Use the [ProxyNewResponseDataUnion.AsAny] method to switch on the variant.
 //
@@ -141,7 +170,7 @@ type ProxyNewResponseDataUnion struct {
 	ProxyID  string `json:"proxyId"`
 	// This field is from variant [shared.Socks5ProxyConfig].
 	User string `json:"user"`
-	// This field is from variant [ProxyNewResponseDataWireguard].
+	// This field is from variant [WireguardProxyConfig].
 	Config string `json:"config"`
 	JSON   struct {
 		Host     respjson.Field
@@ -163,13 +192,13 @@ type anyProxyNewResponseData interface {
 	ImplProxyNewResponseDataUnion()
 }
 
-func (ProxyNewResponseDataWireguard) ImplProxyNewResponseDataUnion() {}
+func (WireguardProxyConfig) ImplProxyNewResponseDataUnion() {}
 
 // Use the following switch statement to find the correct variant
 //
 //	switch variant := ProxyNewResponseDataUnion.AsAny().(type) {
 //	case shared.Socks5ProxyConfig:
-//	case mobilerun.ProxyNewResponseDataWireguard:
+//	case mobilerun.WireguardProxyConfig:
 //	default:
 //	  fmt.Errorf("no variant present")
 //	}
@@ -188,7 +217,7 @@ func (u ProxyNewResponseDataUnion) AsSocks5() (v shared.Socks5ProxyConfig) {
 	return
 }
 
-func (u ProxyNewResponseDataUnion) AsWireguard() (v ProxyNewResponseDataWireguard) {
+func (u ProxyNewResponseDataUnion) AsWireguard() (v WireguardProxyConfig) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
@@ -197,28 +226,6 @@ func (u ProxyNewResponseDataUnion) AsWireguard() (v ProxyNewResponseDataWireguar
 func (u ProxyNewResponseDataUnion) RawJSON() string { return u.JSON.raw }
 
 func (r *ProxyNewResponseDataUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ProxyNewResponseDataWireguard struct {
-	Config   string             `json:"config" api:"required"`
-	Name     string             `json:"name" api:"required"`
-	Protocol constant.Wireguard `json:"protocol" default:"wireguard"`
-	ProxyID  string             `json:"proxyId" api:"required" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Config      respjson.Field
-		Name        respjson.Field
-		Protocol    respjson.Field
-		ProxyID     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ProxyNewResponseDataWireguard) RawJSON() string { return r.JSON.raw }
-func (r *ProxyNewResponseDataWireguard) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -239,7 +246,7 @@ func (r *ProxyGetResponse) UnmarshalJSON(data []byte) error {
 }
 
 // ProxyGetResponseDataUnion contains all possible properties and values from
-// [shared.Socks5ProxyConfig], [ProxyGetResponseDataWireguard].
+// [shared.Socks5ProxyConfig], [WireguardProxyConfig].
 //
 // Use the [ProxyGetResponseDataUnion.AsAny] method to switch on the variant.
 //
@@ -257,7 +264,7 @@ type ProxyGetResponseDataUnion struct {
 	ProxyID  string `json:"proxyId"`
 	// This field is from variant [shared.Socks5ProxyConfig].
 	User string `json:"user"`
-	// This field is from variant [ProxyGetResponseDataWireguard].
+	// This field is from variant [WireguardProxyConfig].
 	Config string `json:"config"`
 	JSON   struct {
 		Host     respjson.Field
@@ -279,13 +286,13 @@ type anyProxyGetResponseData interface {
 	ImplProxyGetResponseDataUnion()
 }
 
-func (ProxyGetResponseDataWireguard) ImplProxyGetResponseDataUnion() {}
+func (WireguardProxyConfig) ImplProxyGetResponseDataUnion() {}
 
 // Use the following switch statement to find the correct variant
 //
 //	switch variant := ProxyGetResponseDataUnion.AsAny().(type) {
 //	case shared.Socks5ProxyConfig:
-//	case mobilerun.ProxyGetResponseDataWireguard:
+//	case mobilerun.WireguardProxyConfig:
 //	default:
 //	  fmt.Errorf("no variant present")
 //	}
@@ -304,7 +311,7 @@ func (u ProxyGetResponseDataUnion) AsSocks5() (v shared.Socks5ProxyConfig) {
 	return
 }
 
-func (u ProxyGetResponseDataUnion) AsWireguard() (v ProxyGetResponseDataWireguard) {
+func (u ProxyGetResponseDataUnion) AsWireguard() (v WireguardProxyConfig) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
@@ -313,28 +320,6 @@ func (u ProxyGetResponseDataUnion) AsWireguard() (v ProxyGetResponseDataWireguar
 func (u ProxyGetResponseDataUnion) RawJSON() string { return u.JSON.raw }
 
 func (r *ProxyGetResponseDataUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ProxyGetResponseDataWireguard struct {
-	Config   string             `json:"config" api:"required"`
-	Name     string             `json:"name" api:"required"`
-	Protocol constant.Wireguard `json:"protocol" default:"wireguard"`
-	ProxyID  string             `json:"proxyId" api:"required" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Config      respjson.Field
-		Name        respjson.Field
-		Protocol    respjson.Field
-		ProxyID     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ProxyGetResponseDataWireguard) RawJSON() string { return r.JSON.raw }
-func (r *ProxyGetResponseDataWireguard) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -360,7 +345,7 @@ func (r *ProxyUpdateResponse) UnmarshalJSON(data []byte) error {
 }
 
 // ProxyUpdateResponseDataUnion contains all possible properties and values from
-// [shared.Socks5ProxyConfig], [ProxyUpdateResponseDataWireguard].
+// [shared.Socks5ProxyConfig], [WireguardProxyConfig].
 //
 // Use the [ProxyUpdateResponseDataUnion.AsAny] method to switch on the variant.
 //
@@ -378,7 +363,7 @@ type ProxyUpdateResponseDataUnion struct {
 	ProxyID  string `json:"proxyId"`
 	// This field is from variant [shared.Socks5ProxyConfig].
 	User string `json:"user"`
-	// This field is from variant [ProxyUpdateResponseDataWireguard].
+	// This field is from variant [WireguardProxyConfig].
 	Config string `json:"config"`
 	JSON   struct {
 		Host     respjson.Field
@@ -400,13 +385,13 @@ type anyProxyUpdateResponseData interface {
 	ImplProxyUpdateResponseDataUnion()
 }
 
-func (ProxyUpdateResponseDataWireguard) ImplProxyUpdateResponseDataUnion() {}
+func (WireguardProxyConfig) ImplProxyUpdateResponseDataUnion() {}
 
 // Use the following switch statement to find the correct variant
 //
 //	switch variant := ProxyUpdateResponseDataUnion.AsAny().(type) {
 //	case shared.Socks5ProxyConfig:
-//	case mobilerun.ProxyUpdateResponseDataWireguard:
+//	case mobilerun.WireguardProxyConfig:
 //	default:
 //	  fmt.Errorf("no variant present")
 //	}
@@ -425,7 +410,7 @@ func (u ProxyUpdateResponseDataUnion) AsSocks5() (v shared.Socks5ProxyConfig) {
 	return
 }
 
-func (u ProxyUpdateResponseDataUnion) AsWireguard() (v ProxyUpdateResponseDataWireguard) {
+func (u ProxyUpdateResponseDataUnion) AsWireguard() (v WireguardProxyConfig) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
@@ -434,28 +419,6 @@ func (u ProxyUpdateResponseDataUnion) AsWireguard() (v ProxyUpdateResponseDataWi
 func (u ProxyUpdateResponseDataUnion) RawJSON() string { return u.JSON.raw }
 
 func (r *ProxyUpdateResponseDataUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ProxyUpdateResponseDataWireguard struct {
-	Config   string             `json:"config" api:"required"`
-	Name     string             `json:"name" api:"required"`
-	Protocol constant.Wireguard `json:"protocol" default:"wireguard"`
-	ProxyID  string             `json:"proxyId" api:"required" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Config      respjson.Field
-		Name        respjson.Field
-		Protocol    respjson.Field
-		ProxyID     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ProxyUpdateResponseDataWireguard) RawJSON() string { return r.JSON.raw }
-func (r *ProxyUpdateResponseDataWireguard) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -476,7 +439,7 @@ func (r *ProxyListResponse) UnmarshalJSON(data []byte) error {
 }
 
 // ProxyListResponseDataUnion contains all possible properties and values from
-// [shared.Socks5ProxyConfig], [ProxyListResponseDataWireguard].
+// [shared.Socks5ProxyConfig], [WireguardProxyConfig].
 //
 // Use the [ProxyListResponseDataUnion.AsAny] method to switch on the variant.
 //
@@ -494,7 +457,7 @@ type ProxyListResponseDataUnion struct {
 	ProxyID  string `json:"proxyId"`
 	// This field is from variant [shared.Socks5ProxyConfig].
 	User string `json:"user"`
-	// This field is from variant [ProxyListResponseDataWireguard].
+	// This field is from variant [WireguardProxyConfig].
 	Config string `json:"config"`
 	JSON   struct {
 		Host     respjson.Field
@@ -516,13 +479,13 @@ type anyProxyListResponseData interface {
 	ImplProxyListResponseDataUnion()
 }
 
-func (ProxyListResponseDataWireguard) ImplProxyListResponseDataUnion() {}
+func (WireguardProxyConfig) ImplProxyListResponseDataUnion() {}
 
 // Use the following switch statement to find the correct variant
 //
 //	switch variant := ProxyListResponseDataUnion.AsAny().(type) {
 //	case shared.Socks5ProxyConfig:
-//	case mobilerun.ProxyListResponseDataWireguard:
+//	case mobilerun.WireguardProxyConfig:
 //	default:
 //	  fmt.Errorf("no variant present")
 //	}
@@ -541,7 +504,7 @@ func (u ProxyListResponseDataUnion) AsSocks5() (v shared.Socks5ProxyConfig) {
 	return
 }
 
-func (u ProxyListResponseDataUnion) AsWireguard() (v ProxyListResponseDataWireguard) {
+func (u ProxyListResponseDataUnion) AsWireguard() (v WireguardProxyConfig) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
@@ -550,28 +513,6 @@ func (u ProxyListResponseDataUnion) AsWireguard() (v ProxyListResponseDataWiregu
 func (u ProxyListResponseDataUnion) RawJSON() string { return u.JSON.raw }
 
 func (r *ProxyListResponseDataUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ProxyListResponseDataWireguard struct {
-	Config   string             `json:"config" api:"required"`
-	Name     string             `json:"name" api:"required"`
-	Protocol constant.Wireguard `json:"protocol" default:"wireguard"`
-	ProxyID  string             `json:"proxyId" api:"required" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Config      respjson.Field
-		Name        respjson.Field
-		Protocol    respjson.Field
-		ProxyID     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ProxyListResponseDataWireguard) RawJSON() string { return r.JSON.raw }
-func (r *ProxyListResponseDataWireguard) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -597,7 +538,7 @@ func (r *ProxyDeleteResponse) UnmarshalJSON(data []byte) error {
 }
 
 // ProxyDeleteResponseDataUnion contains all possible properties and values from
-// [shared.Socks5ProxyConfig], [ProxyDeleteResponseDataWireguard].
+// [shared.Socks5ProxyConfig], [WireguardProxyConfig].
 //
 // Use the [ProxyDeleteResponseDataUnion.AsAny] method to switch on the variant.
 //
@@ -615,7 +556,7 @@ type ProxyDeleteResponseDataUnion struct {
 	ProxyID  string `json:"proxyId"`
 	// This field is from variant [shared.Socks5ProxyConfig].
 	User string `json:"user"`
-	// This field is from variant [ProxyDeleteResponseDataWireguard].
+	// This field is from variant [WireguardProxyConfig].
 	Config string `json:"config"`
 	JSON   struct {
 		Host     respjson.Field
@@ -637,13 +578,13 @@ type anyProxyDeleteResponseData interface {
 	ImplProxyDeleteResponseDataUnion()
 }
 
-func (ProxyDeleteResponseDataWireguard) ImplProxyDeleteResponseDataUnion() {}
+func (WireguardProxyConfig) ImplProxyDeleteResponseDataUnion() {}
 
 // Use the following switch statement to find the correct variant
 //
 //	switch variant := ProxyDeleteResponseDataUnion.AsAny().(type) {
 //	case shared.Socks5ProxyConfig:
-//	case mobilerun.ProxyDeleteResponseDataWireguard:
+//	case mobilerun.WireguardProxyConfig:
 //	default:
 //	  fmt.Errorf("no variant present")
 //	}
@@ -662,7 +603,7 @@ func (u ProxyDeleteResponseDataUnion) AsSocks5() (v shared.Socks5ProxyConfig) {
 	return
 }
 
-func (u ProxyDeleteResponseDataUnion) AsWireguard() (v ProxyDeleteResponseDataWireguard) {
+func (u ProxyDeleteResponseDataUnion) AsWireguard() (v WireguardProxyConfig) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
@@ -671,28 +612,6 @@ func (u ProxyDeleteResponseDataUnion) AsWireguard() (v ProxyDeleteResponseDataWi
 func (u ProxyDeleteResponseDataUnion) RawJSON() string { return u.JSON.raw }
 
 func (r *ProxyDeleteResponseDataUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ProxyDeleteResponseDataWireguard struct {
-	Config   string             `json:"config" api:"required"`
-	Name     string             `json:"name" api:"required"`
-	Protocol constant.Wireguard `json:"protocol" default:"wireguard"`
-	ProxyID  string             `json:"proxyId" api:"required" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Config      respjson.Field
-		Name        respjson.Field
-		Protocol    respjson.Field
-		ProxyID     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ProxyDeleteResponseDataWireguard) RawJSON() string { return r.JSON.raw }
-func (r *ProxyDeleteResponseDataWireguard) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

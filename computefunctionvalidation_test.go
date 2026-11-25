@@ -29,8 +29,8 @@ func TestComputeFunctionValidationNewWithOptionalParams(t *testing.T) {
 	_, err := client.Compute.Functions.Validations.New(context.TODO(), mobilerun.ComputeFunctionValidationNewParams{
 		Source: "x",
 		WaitS:  mobilerun.Int(0),
-		Manifest: mobilerun.ComputeFunctionValidationNewParamsManifest{
-			Credentials: []mobilerun.ComputeFunctionValidationNewParamsManifestCredential{{
+		Manifest: mobilerun.FunctionManifestParam{
+			Credentials: []mobilerun.FunctionManifestCredentialParam{{
 				Name:        "x",
 				PackageName: "x",
 			}},

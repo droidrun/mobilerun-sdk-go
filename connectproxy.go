@@ -15,6 +15,7 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
 )
@@ -66,11 +67,26 @@ func (r *ConnectProxyService) Update(ctx context.Context, id string, body Connec
 }
 
 // Returns proxies owned by the caller. Credentials are omitted from the list.
-func (r *ConnectProxyService) List(ctx context.Context, query ConnectProxyListParams, opts ...option.RequestOption) (res *ConnectProxyListResponse, err error) {
+func (r *ConnectProxyService) List(ctx context.Context, query ConnectProxyListParams, opts ...option.RequestOption) (res *pagination.Page[ConnectProxyListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "connect/proxies"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns proxies owned by the caller. Credentials are omitted from the list.
+func (r *ConnectProxyService) ListAutoPaging(ctx context.Context, query ConnectProxyListParams, opts ...option.RequestOption) *pagination.PageAutoPager[ConnectProxyListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Provisions a proxy of the requested type for the caller in the selected country.
@@ -132,15 +148,33 @@ func (r *ConnectProxyService) EnsureHealthy(ctx context.Context, id string, opts
 // (aggregated across the connection's lifetime). Supports filtering on every
 // property plus ordering and pagination. Returns 503 when connection history is
 // temporarily unavailable.
-func (r *ConnectProxyService) ListConnections(ctx context.Context, id string, query ConnectProxyListConnectionsParams, opts ...option.RequestOption) (res *ConnectProxyListConnectionsResponse, err error) {
+func (r *ConnectProxyService) ListConnections(ctx context.Context, id string, query ConnectProxyListConnectionsParams, opts ...option.RequestOption) (res *pagination.Page[Connection], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if id == "" {
 		err = errors.New("missing required id parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("connect/proxies/%s/connections", id)
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns the connection history recorded for this proxy, one item per connection
+// (aggregated across the connection's lifetime). Supports filtering on every
+// property plus ordering and pagination. Returns 503 when connection history is
+// temporarily unavailable.
+func (r *ConnectProxyService) ListConnectionsAutoPaging(ctx context.Context, id string, query ConnectProxyListConnectionsParams, opts ...option.RequestOption) *pagination.PageAutoPager[Connection] {
+	return pagination.NewPageAutoPager(r.ListConnections(ctx, id, query, opts...))
 }
 
 // Returns the most recent cached network-latency measurement for the proxy,
@@ -330,28 +364,8 @@ const (
 	ConnectProxyUpdateResponseBillingModeStandalonePaid ConnectProxyUpdateResponseBillingMode = "standalone_paid"
 )
 
-// A page of proxies.
-type ConnectProxyListResponse struct {
-	Items []ConnectProxyListResponseItem `json:"items" api:"required"`
-	// Pagination metadata for a list response.
-	Pagination ConnectProxyListResponsePagination `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectProxyListResponse) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 // A provisioned proxy without its credentials.
-type ConnectProxyListResponseItem struct {
+type ConnectProxyListResponse struct {
 	ID string `json:"id" api:"required" format:"uuid"`
 	// ISO 3166-1 alpha-2 country code (lowercase).
 	Country   string    `json:"country" api:"required"`
@@ -371,12 +385,12 @@ type ConnectProxyListResponseItem struct {
 	//
 	// Any of "checking", "pending_payment", "provisioning", "active", "cancelling",
 	// "ended", "error".
-	Status string `json:"status" api:"required"`
+	Status ConnectProxyListResponseStatus `json:"status" api:"required"`
 	// Any of "dedicated_residential", "residential", "mobile".
-	Type     string `json:"type" api:"required"`
-	Username string `json:"username" api:"required"`
+	Type     ConnectProxyListResponseType `json:"type" api:"required"`
+	Username string                       `json:"username" api:"required"`
 	// Any of "included", "standalone_paid".
-	BillingMode string `json:"billingMode"`
+	BillingMode ConnectProxyListResponseBillingMode `json:"billingMode"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -395,43 +409,43 @@ type ConnectProxyListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ConnectProxyListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListResponseItem) UnmarshalJSON(data []byte) error {
+func (r ConnectProxyListResponse) RawJSON() string { return r.JSON.raw }
+func (r *ConnectProxyListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-// Pagination metadata for a list response.
-type ConnectProxyListResponsePagination struct {
-	// Whether a next page exists.
-	HasNext bool `json:"hasNext" api:"required"`
-	// Whether a previous page exists.
-	HasPrev bool `json:"hasPrev" api:"required"`
-	// Current page number (1-based).
-	Page int64 `json:"page" api:"required"`
-	// Total number of pages.
-	Pages int64 `json:"pages" api:"required"`
-	// Number of items per page.
-	PageSize int64 `json:"pageSize" api:"required"`
-	// Total number of items across all pages.
-	Total int64 `json:"total" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		HasNext     respjson.Field
-		HasPrev     respjson.Field
-		Page        respjson.Field
-		Pages       respjson.Field
-		PageSize    respjson.Field
-		Total       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
+// Lifecycle of a proxy. A freshly created proxy is `checking` while its billing
+// identity is being resolved — clients should poll until a `paymentUrl` or a later
+// status appears — then `provisioning` — or `pending_payment` until the customer
+// completes checkout — and becomes `active` once its upstream is assigned.
+// `cancelling` retains full access through the paid period; when the subscription
+// expires the proxy is `ended`. `error` marks a failed provisioning attempt.
+type ConnectProxyListResponseStatus string
 
-// Returns the unmodified JSON received from the API
-func (r ConnectProxyListResponsePagination) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListResponsePagination) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
+const (
+	ConnectProxyListResponseStatusChecking       ConnectProxyListResponseStatus = "checking"
+	ConnectProxyListResponseStatusPendingPayment ConnectProxyListResponseStatus = "pending_payment"
+	ConnectProxyListResponseStatusProvisioning   ConnectProxyListResponseStatus = "provisioning"
+	ConnectProxyListResponseStatusActive         ConnectProxyListResponseStatus = "active"
+	ConnectProxyListResponseStatusCancelling     ConnectProxyListResponseStatus = "cancelling"
+	ConnectProxyListResponseStatusEnded          ConnectProxyListResponseStatus = "ended"
+	ConnectProxyListResponseStatusError          ConnectProxyListResponseStatus = "error"
+)
+
+type ConnectProxyListResponseType string
+
+const (
+	ConnectProxyListResponseTypeDedicatedResidential ConnectProxyListResponseType = "dedicated_residential"
+	ConnectProxyListResponseTypeResidential          ConnectProxyListResponseType = "residential"
+	ConnectProxyListResponseTypeMobile               ConnectProxyListResponseType = "mobile"
+)
+
+type ConnectProxyListResponseBillingMode string
+
+const (
+	ConnectProxyListResponseBillingModeIncluded       ConnectProxyListResponseBillingMode = "included"
+	ConnectProxyListResponseBillingModeStandalonePaid ConnectProxyListResponseBillingMode = "standalone_paid"
+)
 
 // A proxy including its password. Returned only on create and single-proxy reads.
 type ConnectProxyBuyResponse struct {
@@ -607,132 +621,6 @@ const (
 	ConnectProxyEnsureHealthyResponseStatusRefused     ConnectProxyEnsureHealthyResponseStatus = "refused"
 	ConnectProxyEnsureHealthyResponseStatusUnreachable ConnectProxyEnsureHealthyResponseStatus = "unreachable"
 )
-
-// A page of connections.
-type ConnectProxyListConnectionsResponse struct {
-	Items []ConnectProxyListConnectionsResponseItem `json:"items" api:"required"`
-	// Pagination metadata for a list response.
-	Pagination ConnectProxyListConnectionsResponsePagination `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectProxyListConnectionsResponse) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListConnectionsResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A single proxy connection, aggregated across its lifetime. Byte counts are
-// totals for the whole connection.
-type ConnectProxyListConnectionsResponseItem struct {
-	// Total bytes received from upstream over the connection's lifetime.
-	BytesIn int64 `json:"bytesIn" api:"required"`
-	// Total bytes sent to upstream over the connection's lifetime.
-	BytesOut int64 `json:"bytesOut" api:"required"`
-	// Upstream country code (ISO 3166-1 alpha-2), or empty if unknown.
-	Country string `json:"country" api:"required"`
-	// Destination host the client connected to.
-	DstHost string `json:"dstHost" api:"required"`
-	// Destination port the client connected to.
-	DstPort int64 `json:"dstPort" api:"required"`
-	// Elapsed time between startedAt and endedAt, in milliseconds.
-	DurationMs int64 `json:"durationMs" api:"required"`
-	// Time of the connection's last recorded activity (close time once closed).
-	EndedAt time.Time `json:"endedAt" api:"required" format:"date-time"`
-	// Transport protocol of a connection.
-	//
-	// Any of "tcp", "udp", "unknown".
-	Protocol string `json:"protocol" api:"required"`
-	// Identifier of the upstream provider that served the connection.
-	Provider string `json:"provider" api:"required"`
-	// The proxy the connection was routed through. All-zero when the upstream was
-	// unresolved at capture time.
-	ProxyID string `json:"proxyId" api:"required" format:"uuid"`
-	// Unique id of this connection.
-	SessionID string `json:"sessionId" api:"required" format:"uuid"`
-	// Client source IP address.
-	SrcIP string `json:"srcIp" api:"required"`
-	// When the connection started.
-	StartedAt time.Time `json:"startedAt" api:"required" format:"date-time"`
-	// `active` while the connection is still open (no terminal record yet); `closed`
-	// once it has ended.
-	//
-	// Any of "active", "closed".
-	Status string `json:"status" api:"required"`
-	// bytesIn + bytesOut.
-	TotalBytes int64 `json:"totalBytes" api:"required"`
-	// The user that made the connection.
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Why the connection closed; null while still active.
-	CloseReason string `json:"closeReason" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BytesIn     respjson.Field
-		BytesOut    respjson.Field
-		Country     respjson.Field
-		DstHost     respjson.Field
-		DstPort     respjson.Field
-		DurationMs  respjson.Field
-		EndedAt     respjson.Field
-		Protocol    respjson.Field
-		Provider    respjson.Field
-		ProxyID     respjson.Field
-		SessionID   respjson.Field
-		SrcIP       respjson.Field
-		StartedAt   respjson.Field
-		Status      respjson.Field
-		TotalBytes  respjson.Field
-		UserID      respjson.Field
-		CloseReason respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectProxyListConnectionsResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListConnectionsResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Pagination metadata for a list response.
-type ConnectProxyListConnectionsResponsePagination struct {
-	// Whether a next page exists.
-	HasNext bool `json:"hasNext" api:"required"`
-	// Whether a previous page exists.
-	HasPrev bool `json:"hasPrev" api:"required"`
-	// Current page number (1-based).
-	Page int64 `json:"page" api:"required"`
-	// Total number of pages.
-	Pages int64 `json:"pages" api:"required"`
-	// Number of items per page.
-	PageSize int64 `json:"pageSize" api:"required"`
-	// Total number of items across all pages.
-	Total int64 `json:"total" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		HasNext     respjson.Field
-		HasPrev     respjson.Field
-		Page        respjson.Field
-		Pages       respjson.Field
-		PageSize    respjson.Field
-		Total       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectProxyListConnectionsResponsePagination) RawJSON() string { return r.JSON.raw }
-func (r *ConnectProxyListConnectionsResponsePagination) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
 
 // The latest cached latency reading for a proxy.
 type ConnectProxyPingResponse struct {
