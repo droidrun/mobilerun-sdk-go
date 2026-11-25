@@ -67,7 +67,7 @@ func (r *ComputeSandboxCommandService) List(ctx context.Context, sandboxID strin
 }
 
 type ComputeSandboxCommandGetResponse struct {
-	Data ComputeSandboxCommandGetResponseData `json:"data" api:"required"`
+	Data SandboxCommand `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -79,39 +79,6 @@ type ComputeSandboxCommandGetResponse struct {
 // Returns the unmodified JSON received from the API
 func (r ComputeSandboxCommandGetResponse) RawJSON() string { return r.JSON.raw }
 func (r *ComputeSandboxCommandGetResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxCommandGetResponseData struct {
-	CommandID  string    `json:"commandId" api:"required" format:"uuid"`
-	DurationMs float64   `json:"durationMs" api:"required"`
-	ExitCode   int64     `json:"exitCode" api:"required"`
-	StartedAt  time.Time `json:"startedAt" api:"required" format:"date-time"`
-	// Any of "running", "exited".
-	Status    string `json:"status" api:"required"`
-	Stderr    string `json:"stderr" api:"required"`
-	Stdout    string `json:"stdout" api:"required"`
-	TimedOut  bool   `json:"timedOut" api:"required"`
-	Truncated bool   `json:"truncated" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CommandID   respjson.Field
-		DurationMs  respjson.Field
-		ExitCode    respjson.Field
-		StartedAt   respjson.Field
-		Status      respjson.Field
-		Stderr      respjson.Field
-		Stdout      respjson.Field
-		TimedOut    respjson.Field
-		Truncated   respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxCommandGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxCommandGetResponseData) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

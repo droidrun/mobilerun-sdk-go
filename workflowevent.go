@@ -89,7 +89,7 @@ type WorkflowEventDryRunResponseDataMatchedFlow struct {
 	Actions   []WorkflowEventDryRunResponseDataMatchedFlowAction `json:"actions" api:"required"`
 	Flow      WorkflowEventDryRunResponseDataMatchedFlowFlow     `json:"flow" api:"required"`
 	Gates     WorkflowEventDryRunResponseDataMatchedFlowGates    `json:"gates" api:"required"`
-	Trigger   WorkflowEventDryRunResponseDataMatchedFlowTrigger  `json:"trigger" api:"required"`
+	Trigger   Trigger                                            `json:"trigger" api:"required"`
 	WouldFire bool                                               `json:"wouldFire" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
@@ -198,8 +198,8 @@ type WorkflowEventDryRunResponseDataMatchedFlowFlow struct {
 	// recordingEnabled=false).
 	//
 	// Deprecated: deprecated
-	RecordingEnabled bool                                                          `json:"recordingEnabled" api:"required"`
-	RecordingPolicy  WorkflowEventDryRunResponseDataMatchedFlowFlowRecordingPolicy `json:"recordingPolicy" api:"required"`
+	RecordingEnabled bool            `json:"recordingEnabled" api:"required"`
+	RecordingPolicy  RecordingPolicy `json:"recordingPolicy" api:"required"`
 	// Effective routine result delivery: the stored setting, else message for a chat
 	// sink, else none.
 	//
@@ -323,25 +323,6 @@ func (r *WorkflowEventDryRunResponseDataMatchedFlowFlowDeliveryRecording) Unmars
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type WorkflowEventDryRunResponseDataMatchedFlowFlowRecordingPolicy struct {
-	// Any of "off", "flow", "selected_steps".
-	Mode string `json:"mode" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Mode        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowEventDryRunResponseDataMatchedFlowFlowRecordingPolicy) RawJSON() string {
-	return r.JSON.raw
-}
-func (r *WorkflowEventDryRunResponseDataMatchedFlowFlowRecordingPolicy) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type WorkflowEventDryRunResponseDataMatchedFlowGates struct {
 	Blocked        bool     `json:"blocked" api:"required"`
 	CooldownActive bool     `json:"cooldownActive" api:"required"`
@@ -363,108 +344,6 @@ type WorkflowEventDryRunResponseDataMatchedFlowGates struct {
 // Returns the unmodified JSON received from the API
 func (r WorkflowEventDryRunResponseDataMatchedFlowGates) RawJSON() string { return r.JSON.raw }
 func (r *WorkflowEventDryRunResponseDataMatchedFlowGates) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowEventDryRunResponseDataMatchedFlowTrigger struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "event", "schedule", "custom".
-	Activation          string                                                        `json:"activation" api:"required"`
-	CreatedAt           time.Time                                                     `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy           string                                                        `json:"createdBy" api:"required" format:"uuid"`
-	CustomPayloadSchema map[string]any                                                `json:"customPayloadSchema" api:"required"`
-	Description         string                                                        `json:"description" api:"required"`
-	EventType           string                                                        `json:"eventType" api:"required"`
-	Name                string                                                        `json:"name" api:"required"`
-	OwnerID             string                                                        `json:"ownerId" api:"required" format:"uuid"`
-	Payload             map[string]any                                                `json:"payload" api:"required"`
-	ScheduleRule        WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRule `json:"scheduleRule" api:"required"`
-	Timezone            string                                                        `json:"timezone" api:"required"`
-	UpdatedAt           time.Time                                                     `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID       string `json:"userId" api:"required" format:"uuid"`
-	Conditions   any    `json:"conditions"`
-	NextFireTime string `json:"nextFireTime" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                  respjson.Field
-		Activation          respjson.Field
-		CreatedAt           respjson.Field
-		CreatedBy           respjson.Field
-		CustomPayloadSchema respjson.Field
-		Description         respjson.Field
-		EventType           respjson.Field
-		Name                respjson.Field
-		OwnerID             respjson.Field
-		Payload             respjson.Field
-		ScheduleRule        respjson.Field
-		Timezone            respjson.Field
-		UpdatedAt           respjson.Field
-		UserID              respjson.Field
-		Conditions          respjson.Field
-		NextFireTime        respjson.Field
-		ExtraFields         map[string]respjson.Field
-		raw                 string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowEventDryRunResponseDataMatchedFlowTrigger) RawJSON() string { return r.JSON.raw }
-func (r *WorkflowEventDryRunResponseDataMatchedFlowTrigger) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRule struct {
-	// Any of "once", "cron", "recurring".
-	Type string `json:"type" api:"required"`
-	// ISO 8601 datetime (for type=once)
-	DateTime string `json:"dateTime"`
-	// Cron expression (for type=cron)
-	Expression string `json:"expression"`
-	// Optional per-occurrence random window around the nominal schedule time
-	Jitter WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRuleJitter `json:"jitter"`
-	// RRULE string (for type=recurring)
-	Rrule string `json:"rrule"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Type        respjson.Field
-		DateTime    respjson.Field
-		Expression  respjson.Field
-		Jitter      respjson.Field
-		Rrule       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRule) RawJSON() string {
-	return r.JSON.raw
-}
-func (r *WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRule) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Optional per-occurrence random window around the nominal schedule time
-type WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRuleJitter struct {
-	AfterMinutes  int64 `json:"afterMinutes"`
-	BeforeMinutes int64 `json:"beforeMinutes"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AfterMinutes  respjson.Field
-		BeforeMinutes respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRuleJitter) RawJSON() string {
-	return r.JSON.raw
-}
-func (r *WorkflowEventDryRunResponseDataMatchedFlowTriggerScheduleRuleJitter) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
