@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // RoutineFileService contains methods and other services that help with
@@ -43,11 +43,29 @@ func NewRoutineFileService(opts ...option.RequestOption) (r RoutineFileService) 
 // destination is Mobilerun with a folder: the run recording, screenshots and
 // files.upload outputs. Newest first; filter by `folder`, `flowId` or
 // `executionId`. Files stay until you delete them or delete their routine.
-func (r *RoutineFileService) List(ctx context.Context, query RoutineFileListParams, opts ...option.RequestOption) (res *RoutineFileListResponse, err error) {
+func (r *RoutineFileService) List(ctx context.Context, query RoutineFileListParams, opts ...option.RequestOption) (res *pagination.Page[RoutineFileListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "routine-files"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Lists the files saved in Mobilerun storage for routines whose delivery
+// destination is Mobilerun with a folder: the run recording, screenshots and
+// files.upload outputs. Newest first; filter by `folder`, `flowId` or
+// `executionId`. Files stay until you delete them or delete their routine.
+func (r *RoutineFileService) ListAutoPaging(ctx context.Context, query RoutineFileListParams, opts ...option.RequestOption) *pagination.PageAutoPager[RoutineFileListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Deletes one saved file permanently and frees its storage (the file disappears at
@@ -92,32 +110,31 @@ func (r *RoutineFileService) Download(ctx context.Context, fileID string, opts .
 // Lists the folders that hold saved files with their file count, total size and
 // newest save time, newest first. Independent of whether the routine or run still
 // exists; `flows` names the routines that saved into each folder.
-func (r *RoutineFileService) ListFolders(ctx context.Context, query RoutineFileListFoldersParams, opts ...option.RequestOption) (res *RoutineFileListFoldersResponse, err error) {
+func (r *RoutineFileService) ListFolders(ctx context.Context, query RoutineFileListFoldersParams, opts ...option.RequestOption) (res *pagination.Page[RoutineFileListFoldersResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "routine-files/folders"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Lists the folders that hold saved files with their file count, total size and
+// newest save time, newest first. Independent of whether the routine or run still
+// exists; `flows` names the routines that saved into each folder.
+func (r *RoutineFileService) ListFoldersAutoPaging(ctx context.Context, query RoutineFileListFoldersParams, opts ...option.RequestOption) *pagination.PageAutoPager[RoutineFileListFoldersResponse] {
+	return pagination.NewPageAutoPager(r.ListFolders(ctx, query, opts...))
 }
 
 type RoutineFileListResponse struct {
-	Items      []RoutineFileListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination             `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r RoutineFileListResponse) RawJSON() string { return r.JSON.raw }
-func (r *RoutineFileListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type RoutineFileListResponseItem struct {
 	ID          string    `json:"id" api:"required" format:"uuid"`
 	CreatedAt   time.Time `json:"createdAt" api:"required" format:"date-time"`
 	ExecutionID string    `json:"executionId" api:"required" format:"uuid"`
@@ -131,9 +148,9 @@ type RoutineFileListResponseItem struct {
 	// Canonical folder the file was saved under, for example "/Exports/241109".
 	Folder string `json:"folder" api:"required"`
 	// Any of "recording", "screenshot", "file".
-	Kind      string `json:"kind" api:"required"`
-	MimeType  string `json:"mimeType" api:"required"`
-	SizeBytes int64  `json:"sizeBytes" api:"required"`
+	Kind      RoutineFileListResponseKind `json:"kind" api:"required"`
+	MimeType  string                      `json:"mimeType" api:"required"`
+	SizeBytes int64                       `json:"sizeBytes" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID          respjson.Field
@@ -153,10 +170,18 @@ type RoutineFileListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r RoutineFileListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *RoutineFileListResponseItem) UnmarshalJSON(data []byte) error {
+func (r RoutineFileListResponse) RawJSON() string { return r.JSON.raw }
+func (r *RoutineFileListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type RoutineFileListResponseKind string
+
+const (
+	RoutineFileListResponseKindRecording  RoutineFileListResponseKind = "recording"
+	RoutineFileListResponseKindScreenshot RoutineFileListResponseKind = "screenshot"
+	RoutineFileListResponseKindFile       RoutineFileListResponseKind = "file"
+)
 
 type RoutineFileDeleteManyResponse struct {
 	Deleted int64 `json:"deleted" api:"required"`
@@ -175,29 +200,11 @@ func (r *RoutineFileDeleteManyResponse) UnmarshalJSON(data []byte) error {
 }
 
 type RoutineFileListFoldersResponse struct {
-	Items      []RoutineFileListFoldersResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination                    `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r RoutineFileListFoldersResponse) RawJSON() string { return r.JSON.raw }
-func (r *RoutineFileListFoldersResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type RoutineFileListFoldersResponseItem struct {
-	FileCount     int64                                    `json:"fileCount" api:"required"`
-	Flows         []RoutineFileListFoldersResponseItemFlow `json:"flows" api:"required"`
-	Folder        string                                   `json:"folder" api:"required"`
-	LastCreatedAt time.Time                                `json:"lastCreatedAt" api:"required" format:"date-time"`
-	SizeBytes     int64                                    `json:"sizeBytes" api:"required"`
+	FileCount     int64                                `json:"fileCount" api:"required"`
+	Flows         []RoutineFileListFoldersResponseFlow `json:"flows" api:"required"`
+	Folder        string                               `json:"folder" api:"required"`
+	LastCreatedAt time.Time                            `json:"lastCreatedAt" api:"required" format:"date-time"`
+	SizeBytes     int64                                `json:"sizeBytes" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		FileCount     respjson.Field
@@ -211,12 +218,12 @@ type RoutineFileListFoldersResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r RoutineFileListFoldersResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *RoutineFileListFoldersResponseItem) UnmarshalJSON(data []byte) error {
+func (r RoutineFileListFoldersResponse) RawJSON() string { return r.JSON.raw }
+func (r *RoutineFileListFoldersResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type RoutineFileListFoldersResponseItemFlow struct {
+type RoutineFileListFoldersResponseFlow struct {
 	FlowDeleted bool   `json:"flowDeleted" api:"required"`
 	FlowID      string `json:"flowId" api:"required" format:"uuid"`
 	FlowName    string `json:"flowName" api:"required"`
@@ -231,8 +238,8 @@ type RoutineFileListFoldersResponseItemFlow struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r RoutineFileListFoldersResponseItemFlow) RawJSON() string { return r.JSON.raw }
-func (r *RoutineFileListFoldersResponseItemFlow) UnmarshalJSON(data []byte) error {
+func (r RoutineFileListFoldersResponseFlow) RawJSON() string { return r.JSON.raw }
+func (r *RoutineFileListFoldersResponseFlow) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
