@@ -37,8 +37,8 @@ func TestComputeFunctionNewWithOptionalParams(t *testing.T) {
 			},
 		},
 		Description: mobilerun.String("description"),
-		Manifest: mobilerun.ComputeFunctionNewParamsManifest{
-			Credentials: []mobilerun.ComputeFunctionNewParamsManifestCredential{{
+		Manifest: mobilerun.FunctionManifestParam{
+			Credentials: []mobilerun.FunctionManifestCredentialParam{{
 				Name:        "x",
 				PackageName: "x",
 			}},

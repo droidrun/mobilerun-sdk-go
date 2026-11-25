@@ -96,8 +96,175 @@ func (r *ComputeSandboxService) Exec(ctx context.Context, sandboxID string, body
 	return res, err
 }
 
+type Sandbox struct {
+	ID           string    `json:"id" api:"required" format:"uuid"`
+	AllowedHosts []string  `json:"allowedHosts" api:"required"`
+	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
+	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
+	IdleTimeoutS int64     `json:"idleTimeoutS" api:"required"`
+	Name         string    `json:"name" api:"required"`
+	// Any of "starting", "running", "stopped".
+	Status    SandboxStatus `json:"status" api:"required"`
+	StoppedAt time.Time     `json:"stoppedAt" api:"required" format:"date-time"`
+	// Any of "deleted", "idle", "timeout", "lost".
+	StopReason  SandboxStopReason  `json:"stopReason" api:"required"`
+	UsedSeconds float64            `json:"usedSeconds" api:"required"`
+	APIKey      SandboxAPIKeyUnion `json:"apiKey"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID           respjson.Field
+		AllowedHosts respjson.Field
+		CreatedAt    respjson.Field
+		ExpiresAt    respjson.Field
+		IdleTimeoutS respjson.Field
+		Name         respjson.Field
+		Status       respjson.Field
+		StoppedAt    respjson.Field
+		StopReason   respjson.Field
+		UsedSeconds  respjson.Field
+		APIKey       respjson.Field
+		ExtraFields  map[string]respjson.Field
+		raw          string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r Sandbox) RawJSON() string { return r.JSON.raw }
+func (r *Sandbox) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SandboxStatus string
+
+const (
+	SandboxStatusStarting SandboxStatus = "starting"
+	SandboxStatusRunning  SandboxStatus = "running"
+	SandboxStatusStopped  SandboxStatus = "stopped"
+)
+
+type SandboxStopReason string
+
+const (
+	SandboxStopReasonDeleted SandboxStopReason = "deleted"
+	SandboxStopReasonIdle    SandboxStopReason = "idle"
+	SandboxStopReasonTimeout SandboxStopReason = "timeout"
+	SandboxStopReasonLost    SandboxStopReason = "lost"
+)
+
+// SandboxAPIKeyUnion contains all possible properties and values from
+// [SandboxAPIKeyObject], [SandboxAPIKeyObject2].
+//
+// Use the methods beginning with 'As' to cast the union to one of its variants.
+type SandboxAPIKeyUnion struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+	// This field is from variant [SandboxAPIKeyObject].
+	Permissions map[string][]string `json:"permissions"`
+	// This field is from variant [SandboxAPIKeyObject2].
+	Full bool `json:"full"`
+	JSON struct {
+		ExpiresAt   respjson.Field
+		Permissions respjson.Field
+		Full        respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+func (u SandboxAPIKeyUnion) AsSandboxAPIKeyObject() (v SandboxAPIKeyObject) {
+	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
+	return
+}
+
+func (u SandboxAPIKeyUnion) AsSandboxAPIKeyObject2() (v SandboxAPIKeyObject2) {
+	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
+	return
+}
+
+// Returns the unmodified JSON received from the API
+func (u SandboxAPIKeyUnion) RawJSON() string { return u.JSON.raw }
+
+func (r *SandboxAPIKeyUnion) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SandboxAPIKeyObject struct {
+	ExpiresAt   time.Time           `json:"expiresAt" api:"required" format:"date-time"`
+	Permissions map[string][]string `json:"permissions" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ExpiresAt   respjson.Field
+		Permissions respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r SandboxAPIKeyObject) RawJSON() string { return r.JSON.raw }
+func (r *SandboxAPIKeyObject) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SandboxAPIKeyObject2 struct {
+	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
+	// Any of true.
+	Full bool `json:"full" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ExpiresAt   respjson.Field
+		Full        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r SandboxAPIKeyObject2) RawJSON() string { return r.JSON.raw }
+func (r *SandboxAPIKeyObject2) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SandboxCommand struct {
+	CommandID  string    `json:"commandId" api:"required" format:"uuid"`
+	DurationMs float64   `json:"durationMs" api:"required"`
+	ExitCode   int64     `json:"exitCode" api:"required"`
+	StartedAt  time.Time `json:"startedAt" api:"required" format:"date-time"`
+	// Any of "running", "exited".
+	Status    SandboxCommandStatus `json:"status" api:"required"`
+	Stderr    string               `json:"stderr" api:"required"`
+	Stdout    string               `json:"stdout" api:"required"`
+	TimedOut  bool                 `json:"timedOut" api:"required"`
+	Truncated bool                 `json:"truncated" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		CommandID   respjson.Field
+		DurationMs  respjson.Field
+		ExitCode    respjson.Field
+		StartedAt   respjson.Field
+		Status      respjson.Field
+		Stderr      respjson.Field
+		Stdout      respjson.Field
+		TimedOut    respjson.Field
+		Truncated   respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r SandboxCommand) RawJSON() string { return r.JSON.raw }
+func (r *SandboxCommand) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SandboxCommandStatus string
+
+const (
+	SandboxCommandStatusRunning SandboxCommandStatus = "running"
+	SandboxCommandStatusExited  SandboxCommandStatus = "exited"
+)
+
 type ComputeSandboxNewResponse struct {
-	Data ComputeSandboxNewResponseData `json:"data" api:"required"`
+	Data Sandbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -112,119 +279,8 @@ func (r *ComputeSandboxNewResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ComputeSandboxNewResponseData struct {
-	ID           string    `json:"id" api:"required" format:"uuid"`
-	AllowedHosts []string  `json:"allowedHosts" api:"required"`
-	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
-	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	IdleTimeoutS int64     `json:"idleTimeoutS" api:"required"`
-	Name         string    `json:"name" api:"required"`
-	// Any of "starting", "running", "stopped".
-	Status    string    `json:"status" api:"required"`
-	StoppedAt time.Time `json:"stoppedAt" api:"required" format:"date-time"`
-	// Any of "deleted", "idle", "timeout", "lost".
-	StopReason  string                                   `json:"stopReason" api:"required"`
-	UsedSeconds float64                                  `json:"usedSeconds" api:"required"`
-	APIKey      ComputeSandboxNewResponseDataAPIKeyUnion `json:"apiKey"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID           respjson.Field
-		AllowedHosts respjson.Field
-		CreatedAt    respjson.Field
-		ExpiresAt    respjson.Field
-		IdleTimeoutS respjson.Field
-		Name         respjson.Field
-		Status       respjson.Field
-		StoppedAt    respjson.Field
-		StopReason   respjson.Field
-		UsedSeconds  respjson.Field
-		APIKey       respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxNewResponseData) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxNewResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// ComputeSandboxNewResponseDataAPIKeyUnion contains all possible properties and
-// values from [ComputeSandboxNewResponseDataAPIKeyObject],
-// [ComputeSandboxNewResponseDataAPIKeyObject2].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-type ComputeSandboxNewResponseDataAPIKeyUnion struct {
-	ExpiresAt time.Time `json:"expiresAt"`
-	// This field is from variant [ComputeSandboxNewResponseDataAPIKeyObject].
-	Permissions map[string][]string `json:"permissions"`
-	// This field is from variant [ComputeSandboxNewResponseDataAPIKeyObject2].
-	Full bool `json:"full"`
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		Full        respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-func (u ComputeSandboxNewResponseDataAPIKeyUnion) AsComputeSandboxNewResponseDataAPIKeyObject() (v ComputeSandboxNewResponseDataAPIKeyObject) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u ComputeSandboxNewResponseDataAPIKeyUnion) AsComputeSandboxNewResponseDataAPIKeyObject2() (v ComputeSandboxNewResponseDataAPIKeyObject2) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u ComputeSandboxNewResponseDataAPIKeyUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *ComputeSandboxNewResponseDataAPIKeyUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxNewResponseDataAPIKeyObject struct {
-	ExpiresAt   time.Time           `json:"expiresAt" api:"required" format:"date-time"`
-	Permissions map[string][]string `json:"permissions" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxNewResponseDataAPIKeyObject) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxNewResponseDataAPIKeyObject) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxNewResponseDataAPIKeyObject2 struct {
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// Any of true.
-	Full bool `json:"full" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Full        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxNewResponseDataAPIKeyObject2) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxNewResponseDataAPIKeyObject2) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type ComputeSandboxGetResponse struct {
-	Data ComputeSandboxGetResponseData `json:"data" api:"required"`
+	Data Sandbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -236,117 +292,6 @@ type ComputeSandboxGetResponse struct {
 // Returns the unmodified JSON received from the API
 func (r ComputeSandboxGetResponse) RawJSON() string { return r.JSON.raw }
 func (r *ComputeSandboxGetResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxGetResponseData struct {
-	ID           string    `json:"id" api:"required" format:"uuid"`
-	AllowedHosts []string  `json:"allowedHosts" api:"required"`
-	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
-	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	IdleTimeoutS int64     `json:"idleTimeoutS" api:"required"`
-	Name         string    `json:"name" api:"required"`
-	// Any of "starting", "running", "stopped".
-	Status    string    `json:"status" api:"required"`
-	StoppedAt time.Time `json:"stoppedAt" api:"required" format:"date-time"`
-	// Any of "deleted", "idle", "timeout", "lost".
-	StopReason  string                                   `json:"stopReason" api:"required"`
-	UsedSeconds float64                                  `json:"usedSeconds" api:"required"`
-	APIKey      ComputeSandboxGetResponseDataAPIKeyUnion `json:"apiKey"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID           respjson.Field
-		AllowedHosts respjson.Field
-		CreatedAt    respjson.Field
-		ExpiresAt    respjson.Field
-		IdleTimeoutS respjson.Field
-		Name         respjson.Field
-		Status       respjson.Field
-		StoppedAt    respjson.Field
-		StopReason   respjson.Field
-		UsedSeconds  respjson.Field
-		APIKey       respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxGetResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// ComputeSandboxGetResponseDataAPIKeyUnion contains all possible properties and
-// values from [ComputeSandboxGetResponseDataAPIKeyObject],
-// [ComputeSandboxGetResponseDataAPIKeyObject2].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-type ComputeSandboxGetResponseDataAPIKeyUnion struct {
-	ExpiresAt time.Time `json:"expiresAt"`
-	// This field is from variant [ComputeSandboxGetResponseDataAPIKeyObject].
-	Permissions map[string][]string `json:"permissions"`
-	// This field is from variant [ComputeSandboxGetResponseDataAPIKeyObject2].
-	Full bool `json:"full"`
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		Full        respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-func (u ComputeSandboxGetResponseDataAPIKeyUnion) AsComputeSandboxGetResponseDataAPIKeyObject() (v ComputeSandboxGetResponseDataAPIKeyObject) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u ComputeSandboxGetResponseDataAPIKeyUnion) AsComputeSandboxGetResponseDataAPIKeyObject2() (v ComputeSandboxGetResponseDataAPIKeyObject2) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u ComputeSandboxGetResponseDataAPIKeyUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *ComputeSandboxGetResponseDataAPIKeyUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxGetResponseDataAPIKeyObject struct {
-	ExpiresAt   time.Time           `json:"expiresAt" api:"required" format:"date-time"`
-	Permissions map[string][]string `json:"permissions" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxGetResponseDataAPIKeyObject) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxGetResponseDataAPIKeyObject) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxGetResponseDataAPIKeyObject2 struct {
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// Any of true.
-	Full bool `json:"full" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Full        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxGetResponseDataAPIKeyObject2) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxGetResponseDataAPIKeyObject2) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -367,8 +312,8 @@ func (r *ComputeSandboxListResponse) UnmarshalJSON(data []byte) error {
 }
 
 type ComputeSandboxListResponseData struct {
-	Items      []ComputeSandboxListResponseDataItem `json:"items" api:"required"`
-	Pagination shared.Pagination                    `json:"pagination" api:"required"`
+	Items      []Sandbox         `json:"items" api:"required"`
+	Pagination shared.Pagination `json:"pagination" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Items       respjson.Field
@@ -384,119 +329,8 @@ func (r *ComputeSandboxListResponseData) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ComputeSandboxListResponseDataItem struct {
-	ID           string    `json:"id" api:"required" format:"uuid"`
-	AllowedHosts []string  `json:"allowedHosts" api:"required"`
-	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
-	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	IdleTimeoutS int64     `json:"idleTimeoutS" api:"required"`
-	Name         string    `json:"name" api:"required"`
-	// Any of "starting", "running", "stopped".
-	Status    string    `json:"status" api:"required"`
-	StoppedAt time.Time `json:"stoppedAt" api:"required" format:"date-time"`
-	// Any of "deleted", "idle", "timeout", "lost".
-	StopReason  string                                        `json:"stopReason" api:"required"`
-	UsedSeconds float64                                       `json:"usedSeconds" api:"required"`
-	APIKey      ComputeSandboxListResponseDataItemAPIKeyUnion `json:"apiKey"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID           respjson.Field
-		AllowedHosts respjson.Field
-		CreatedAt    respjson.Field
-		ExpiresAt    respjson.Field
-		IdleTimeoutS respjson.Field
-		Name         respjson.Field
-		Status       respjson.Field
-		StoppedAt    respjson.Field
-		StopReason   respjson.Field
-		UsedSeconds  respjson.Field
-		APIKey       respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxListResponseDataItem) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxListResponseDataItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// ComputeSandboxListResponseDataItemAPIKeyUnion contains all possible properties
-// and values from [ComputeSandboxListResponseDataItemAPIKeyObject],
-// [ComputeSandboxListResponseDataItemAPIKeyObject2].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-type ComputeSandboxListResponseDataItemAPIKeyUnion struct {
-	ExpiresAt time.Time `json:"expiresAt"`
-	// This field is from variant [ComputeSandboxListResponseDataItemAPIKeyObject].
-	Permissions map[string][]string `json:"permissions"`
-	// This field is from variant [ComputeSandboxListResponseDataItemAPIKeyObject2].
-	Full bool `json:"full"`
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		Full        respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-func (u ComputeSandboxListResponseDataItemAPIKeyUnion) AsComputeSandboxListResponseDataItemAPIKeyObject() (v ComputeSandboxListResponseDataItemAPIKeyObject) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u ComputeSandboxListResponseDataItemAPIKeyUnion) AsComputeSandboxListResponseDataItemAPIKeyObject2() (v ComputeSandboxListResponseDataItemAPIKeyObject2) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u ComputeSandboxListResponseDataItemAPIKeyUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *ComputeSandboxListResponseDataItemAPIKeyUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxListResponseDataItemAPIKeyObject struct {
-	ExpiresAt   time.Time           `json:"expiresAt" api:"required" format:"date-time"`
-	Permissions map[string][]string `json:"permissions" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxListResponseDataItemAPIKeyObject) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxListResponseDataItemAPIKeyObject) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxListResponseDataItemAPIKeyObject2 struct {
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// Any of true.
-	Full bool `json:"full" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Full        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxListResponseDataItemAPIKeyObject2) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxListResponseDataItemAPIKeyObject2) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type ComputeSandboxDeleteResponse struct {
-	Data ComputeSandboxDeleteResponseData `json:"data" api:"required"`
+	Data Sandbox `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -511,119 +345,8 @@ func (r *ComputeSandboxDeleteResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ComputeSandboxDeleteResponseData struct {
-	ID           string    `json:"id" api:"required" format:"uuid"`
-	AllowedHosts []string  `json:"allowedHosts" api:"required"`
-	CreatedAt    time.Time `json:"createdAt" api:"required" format:"date-time"`
-	ExpiresAt    time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	IdleTimeoutS int64     `json:"idleTimeoutS" api:"required"`
-	Name         string    `json:"name" api:"required"`
-	// Any of "starting", "running", "stopped".
-	Status    string    `json:"status" api:"required"`
-	StoppedAt time.Time `json:"stoppedAt" api:"required" format:"date-time"`
-	// Any of "deleted", "idle", "timeout", "lost".
-	StopReason  string                                      `json:"stopReason" api:"required"`
-	UsedSeconds float64                                     `json:"usedSeconds" api:"required"`
-	APIKey      ComputeSandboxDeleteResponseDataAPIKeyUnion `json:"apiKey"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID           respjson.Field
-		AllowedHosts respjson.Field
-		CreatedAt    respjson.Field
-		ExpiresAt    respjson.Field
-		IdleTimeoutS respjson.Field
-		Name         respjson.Field
-		Status       respjson.Field
-		StoppedAt    respjson.Field
-		StopReason   respjson.Field
-		UsedSeconds  respjson.Field
-		APIKey       respjson.Field
-		ExtraFields  map[string]respjson.Field
-		raw          string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxDeleteResponseData) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxDeleteResponseData) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// ComputeSandboxDeleteResponseDataAPIKeyUnion contains all possible properties and
-// values from [ComputeSandboxDeleteResponseDataAPIKeyObject],
-// [ComputeSandboxDeleteResponseDataAPIKeyObject2].
-//
-// Use the methods beginning with 'As' to cast the union to one of its variants.
-type ComputeSandboxDeleteResponseDataAPIKeyUnion struct {
-	ExpiresAt time.Time `json:"expiresAt"`
-	// This field is from variant [ComputeSandboxDeleteResponseDataAPIKeyObject].
-	Permissions map[string][]string `json:"permissions"`
-	// This field is from variant [ComputeSandboxDeleteResponseDataAPIKeyObject2].
-	Full bool `json:"full"`
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		Full        respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-func (u ComputeSandboxDeleteResponseDataAPIKeyUnion) AsComputeSandboxDeleteResponseDataAPIKeyObject() (v ComputeSandboxDeleteResponseDataAPIKeyObject) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-func (u ComputeSandboxDeleteResponseDataAPIKeyUnion) AsComputeSandboxDeleteResponseDataAPIKeyObject2() (v ComputeSandboxDeleteResponseDataAPIKeyObject2) {
-	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
-	return
-}
-
-// Returns the unmodified JSON received from the API
-func (u ComputeSandboxDeleteResponseDataAPIKeyUnion) RawJSON() string { return u.JSON.raw }
-
-func (r *ComputeSandboxDeleteResponseDataAPIKeyUnion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxDeleteResponseDataAPIKeyObject struct {
-	ExpiresAt   time.Time           `json:"expiresAt" api:"required" format:"date-time"`
-	Permissions map[string][]string `json:"permissions" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Permissions respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxDeleteResponseDataAPIKeyObject) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxDeleteResponseDataAPIKeyObject) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxDeleteResponseDataAPIKeyObject2 struct {
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// Any of true.
-	Full bool `json:"full" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ExpiresAt   respjson.Field
-		Full        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxDeleteResponseDataAPIKeyObject2) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxDeleteResponseDataAPIKeyObject2) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type ComputeSandboxExecResponse struct {
-	Data ComputeSandboxExecResponseData `json:"data" api:"required"`
+	Data SandboxCommand `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -635,39 +358,6 @@ type ComputeSandboxExecResponse struct {
 // Returns the unmodified JSON received from the API
 func (r ComputeSandboxExecResponse) RawJSON() string { return r.JSON.raw }
 func (r *ComputeSandboxExecResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ComputeSandboxExecResponseData struct {
-	CommandID  string    `json:"commandId" api:"required" format:"uuid"`
-	DurationMs float64   `json:"durationMs" api:"required"`
-	ExitCode   int64     `json:"exitCode" api:"required"`
-	StartedAt  time.Time `json:"startedAt" api:"required" format:"date-time"`
-	// Any of "running", "exited".
-	Status    string `json:"status" api:"required"`
-	Stderr    string `json:"stderr" api:"required"`
-	Stdout    string `json:"stdout" api:"required"`
-	TimedOut  bool   `json:"timedOut" api:"required"`
-	Truncated bool   `json:"truncated" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CommandID   respjson.Field
-		DurationMs  respjson.Field
-		ExitCode    respjson.Field
-		StartedAt   respjson.Field
-		Status      respjson.Field
-		Stderr      respjson.Field
-		Stdout      respjson.Field
-		TimedOut    respjson.Field
-		Truncated   respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ComputeSandboxExecResponseData) RawJSON() string { return r.JSON.raw }
-func (r *ComputeSandboxExecResponseData) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 

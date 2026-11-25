@@ -90,6 +90,64 @@ func (r *AgentRequestService) GetBySession(ctx context.Context, sessionID string
 	return res, err
 }
 
+type AgentRoom struct {
+	ID string `json:"id" api:"required" format:"uuid"`
+	// Any of "direct", "group".
+	Kind    AgentRoomKind     `json:"kind" api:"required"`
+	Members []AgentRoomMember `json:"members" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID          respjson.Field
+		Kind        respjson.Field
+		Members     respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AgentRoom) RawJSON() string { return r.JSON.raw }
+func (r *AgentRoom) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type AgentRoomKind string
+
+const (
+	AgentRoomKindDirect AgentRoomKind = "direct"
+	AgentRoomKindGroup  AgentRoomKind = "group"
+)
+
+type AgentRoomMember struct {
+	ID       string `json:"id" api:"required" format:"uuid"`
+	AgentID  string `json:"agentId" api:"required" format:"uuid"`
+	JoinedAt string `json:"joinedAt" api:"required"`
+	LeftAt   string `json:"leftAt" api:"required"`
+	// Any of "agent", "user".
+	ParticipantType string `json:"participantType" api:"required"`
+	// Any of "owner", "member".
+	Role   string `json:"role" api:"required"`
+	UserID string `json:"userId" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID              respjson.Field
+		AgentID         respjson.Field
+		JoinedAt        respjson.Field
+		LeftAt          respjson.Field
+		ParticipantType respjson.Field
+		Role            respjson.Field
+		UserID          respjson.Field
+		ExtraFields     map[string]respjson.Field
+		raw             string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AgentRoomMember) RawJSON() string { return r.JSON.raw }
+func (r *AgentRoomMember) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type AgentRequestGetResponse struct {
 	ID               string                             `json:"id" api:"required" format:"uuid"`
 	CreatedAt        string                             `json:"createdAt" api:"required"`
@@ -102,7 +160,7 @@ type AgentRequestGetResponse struct {
 	FinishedAt       string                             `json:"finishedAt" api:"required"`
 	Request          AgentRequestGetResponseRequest     `json:"request" api:"required"`
 	Result           AgentRequestGetResponseResultUnion `json:"result" api:"required"`
-	Room             AgentRequestGetResponseRoom        `json:"room" api:"required"`
+	Room             AgentRoom                          `json:"room" api:"required"`
 	SourceAgentID    string                             `json:"sourceAgentId" api:"required" format:"uuid"`
 	SourceSessionID  string                             `json:"sourceSessionId" api:"required" format:"uuid"`
 	// Any of "queued", "running", "answered", "failed", "timed_out", "cancelled",
@@ -279,57 +337,6 @@ func (r *AgentRequestGetResponseResultQuestion) UnmarshalJSON(data []byte) error
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type AgentRequestGetResponseRoom struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "direct", "group".
-	Kind    string                              `json:"kind" api:"required"`
-	Members []AgentRequestGetResponseRoomMember `json:"members" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Kind        respjson.Field
-		Members     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestGetResponseRoom) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestGetResponseRoom) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AgentRequestGetResponseRoomMember struct {
-	ID       string `json:"id" api:"required" format:"uuid"`
-	AgentID  string `json:"agentId" api:"required" format:"uuid"`
-	JoinedAt string `json:"joinedAt" api:"required"`
-	LeftAt   string `json:"leftAt" api:"required"`
-	// Any of "agent", "user".
-	ParticipantType string `json:"participantType" api:"required"`
-	// Any of "owner", "member".
-	Role   string `json:"role" api:"required"`
-	UserID string `json:"userId" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		AgentID         respjson.Field
-		JoinedAt        respjson.Field
-		LeftAt          respjson.Field
-		ParticipantType respjson.Field
-		Role            respjson.Field
-		UserID          respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestGetResponseRoomMember) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestGetResponseRoomMember) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type AgentRequestGetResponseStatus string
 
 const (
@@ -373,11 +380,11 @@ type AgentRequestListResponseRequest struct {
 	// `dispatch_failed`, `timed_out`, `cancelled`, `result_too_large`, `no_answer`,
 	// `target_turn_failed`, `target_error`, `target_aborted`,
 	// `target_crash_recovered`, `target_unknown_outcome`.
-	ErrorCode       string                              `json:"errorCode" api:"required"`
-	FinishedAt      string                              `json:"finishedAt" api:"required"`
-	Room            AgentRequestListResponseRequestRoom `json:"room" api:"required"`
-	SourceAgentID   string                              `json:"sourceAgentId" api:"required" format:"uuid"`
-	SourceSessionID string                              `json:"sourceSessionId" api:"required" format:"uuid"`
+	ErrorCode       string    `json:"errorCode" api:"required"`
+	FinishedAt      string    `json:"finishedAt" api:"required"`
+	Room            AgentRoom `json:"room" api:"required"`
+	SourceAgentID   string    `json:"sourceAgentId" api:"required" format:"uuid"`
+	SourceSessionID string    `json:"sourceSessionId" api:"required" format:"uuid"`
 	// Any of "queued", "running", "answered", "failed", "timed_out", "cancelled",
 	// "late_answer", "needs_user_input".
 	Status          string `json:"status" api:"required"`
@@ -411,57 +418,6 @@ func (r *AgentRequestListResponseRequest) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type AgentRequestListResponseRequestRoom struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "direct", "group".
-	Kind    string                                      `json:"kind" api:"required"`
-	Members []AgentRequestListResponseRequestRoomMember `json:"members" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Kind        respjson.Field
-		Members     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestListResponseRequestRoom) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestListResponseRequestRoom) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AgentRequestListResponseRequestRoomMember struct {
-	ID       string `json:"id" api:"required" format:"uuid"`
-	AgentID  string `json:"agentId" api:"required" format:"uuid"`
-	JoinedAt string `json:"joinedAt" api:"required"`
-	LeftAt   string `json:"leftAt" api:"required"`
-	// Any of "agent", "user".
-	ParticipantType string `json:"participantType" api:"required"`
-	// Any of "owner", "member".
-	Role   string `json:"role" api:"required"`
-	UserID string `json:"userId" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		AgentID         respjson.Field
-		JoinedAt        respjson.Field
-		LeftAt          respjson.Field
-		ParticipantType respjson.Field
-		Role            respjson.Field
-		UserID          respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestListResponseRequestRoomMember) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestListResponseRequestRoomMember) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type AgentRequestListForAgentResponse struct {
 	// Cursor for the next page; null when there are no older requests.
 	NextCursor string                                    `json:"nextCursor" api:"required"`
@@ -492,11 +448,11 @@ type AgentRequestListForAgentResponseRequest struct {
 	// `dispatch_failed`, `timed_out`, `cancelled`, `result_too_large`, `no_answer`,
 	// `target_turn_failed`, `target_error`, `target_aborted`,
 	// `target_crash_recovered`, `target_unknown_outcome`.
-	ErrorCode       string                                      `json:"errorCode" api:"required"`
-	FinishedAt      string                                      `json:"finishedAt" api:"required"`
-	Room            AgentRequestListForAgentResponseRequestRoom `json:"room" api:"required"`
-	SourceAgentID   string                                      `json:"sourceAgentId" api:"required" format:"uuid"`
-	SourceSessionID string                                      `json:"sourceSessionId" api:"required" format:"uuid"`
+	ErrorCode       string    `json:"errorCode" api:"required"`
+	FinishedAt      string    `json:"finishedAt" api:"required"`
+	Room            AgentRoom `json:"room" api:"required"`
+	SourceAgentID   string    `json:"sourceAgentId" api:"required" format:"uuid"`
+	SourceSessionID string    `json:"sourceSessionId" api:"required" format:"uuid"`
 	// Any of "queued", "running", "answered", "failed", "timed_out", "cancelled",
 	// "late_answer", "needs_user_input".
 	Status          string `json:"status" api:"required"`
@@ -530,57 +486,6 @@ func (r *AgentRequestListForAgentResponseRequest) UnmarshalJSON(data []byte) err
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type AgentRequestListForAgentResponseRequestRoom struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "direct", "group".
-	Kind    string                                              `json:"kind" api:"required"`
-	Members []AgentRequestListForAgentResponseRequestRoomMember `json:"members" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Kind        respjson.Field
-		Members     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestListForAgentResponseRequestRoom) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestListForAgentResponseRequestRoom) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AgentRequestListForAgentResponseRequestRoomMember struct {
-	ID       string `json:"id" api:"required" format:"uuid"`
-	AgentID  string `json:"agentId" api:"required" format:"uuid"`
-	JoinedAt string `json:"joinedAt" api:"required"`
-	LeftAt   string `json:"leftAt" api:"required"`
-	// Any of "agent", "user".
-	ParticipantType string `json:"participantType" api:"required"`
-	// Any of "owner", "member".
-	Role   string `json:"role" api:"required"`
-	UserID string `json:"userId" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		AgentID         respjson.Field
-		JoinedAt        respjson.Field
-		LeftAt          respjson.Field
-		ParticipantType respjson.Field
-		Role            respjson.Field
-		UserID          respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestListForAgentResponseRequestRoomMember) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestListForAgentResponseRequestRoomMember) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type AgentRequestGetBySessionResponse struct {
 	ID               string                                      `json:"id" api:"required" format:"uuid"`
 	CreatedAt        string                                      `json:"createdAt" api:"required"`
@@ -593,7 +498,7 @@ type AgentRequestGetBySessionResponse struct {
 	FinishedAt       string                                      `json:"finishedAt" api:"required"`
 	Request          AgentRequestGetBySessionResponseRequest     `json:"request" api:"required"`
 	Result           AgentRequestGetBySessionResponseResultUnion `json:"result" api:"required"`
-	Room             AgentRequestGetBySessionResponseRoom        `json:"room" api:"required"`
+	Room             AgentRoom                                   `json:"room" api:"required"`
 	SourceAgentID    string                                      `json:"sourceAgentId" api:"required" format:"uuid"`
 	SourceSessionID  string                                      `json:"sourceSessionId" api:"required" format:"uuid"`
 	// Any of "queued", "running", "answered", "failed", "timed_out", "cancelled",
@@ -767,57 +672,6 @@ type AgentRequestGetBySessionResponseResultQuestion struct {
 // Returns the unmodified JSON received from the API
 func (r AgentRequestGetBySessionResponseResultQuestion) RawJSON() string { return r.JSON.raw }
 func (r *AgentRequestGetBySessionResponseResultQuestion) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AgentRequestGetBySessionResponseRoom struct {
-	ID string `json:"id" api:"required" format:"uuid"`
-	// Any of "direct", "group".
-	Kind    string                                       `json:"kind" api:"required"`
-	Members []AgentRequestGetBySessionResponseRoomMember `json:"members" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		Kind        respjson.Field
-		Members     respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestGetBySessionResponseRoom) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestGetBySessionResponseRoom) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AgentRequestGetBySessionResponseRoomMember struct {
-	ID       string `json:"id" api:"required" format:"uuid"`
-	AgentID  string `json:"agentId" api:"required" format:"uuid"`
-	JoinedAt string `json:"joinedAt" api:"required"`
-	LeftAt   string `json:"leftAt" api:"required"`
-	// Any of "agent", "user".
-	ParticipantType string `json:"participantType" api:"required"`
-	// Any of "owner", "member".
-	Role   string `json:"role" api:"required"`
-	UserID string `json:"userId" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID              respjson.Field
-		AgentID         respjson.Field
-		JoinedAt        respjson.Field
-		LeftAt          respjson.Field
-		ParticipantType respjson.Field
-		Role            respjson.Field
-		UserID          respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AgentRequestGetBySessionResponseRoomMember) RawJSON() string { return r.JSON.raw }
-func (r *AgentRequestGetBySessionResponseRoomMember) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
