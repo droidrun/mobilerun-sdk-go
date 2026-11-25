@@ -26,7 +26,7 @@ Or to pin the version:
 <!-- x-release-please-start-version -->
 
 ```sh
-go get -u 'github.com/droidrun/mobilerun-sdk-go/v6@v6.3.0'
+go get -u 'github.com/droidrun/mobilerun-sdk-go/v6@v6.4.0'
 ```
 
 <!-- x-release-please-end -->
@@ -36,6 +36,49 @@ go get -u 'github.com/droidrun/mobilerun-sdk-go/v6@v6.3.0'
 This library requires Go 1.22+.
 
 ## Usage
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/droidrun/mobilerun-sdk-go/v6"
+	"github.com/droidrun/mobilerun-sdk-go/v6/sdk"
+)
+
+func main() {
+	ctx := context.Background()
+	client := sdk.NewMobilerunSDK() // reads MOBILERUN_API_KEY
+
+	device, err := client.Devices.New(ctx, mobilerun.DeviceNewParams{}) // waits until ready
+	if err != nil {
+		panic(err)
+	}
+	defer device.Close(ctx) // terminates the device this handle created
+
+	task, err := device.Run(ctx, mobilerun.TaskRunParams{Task: "Open the settings app"})
+	if err != nil {
+		panic(err)
+	}
+	result, err := task.Wait(ctx)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(result.Status, device.Name())
+
+	devices := client.Devices.ListAutoPaging(ctx, mobilerun.DeviceListParams{})
+	for devices.Next() {
+		fmt.Println(devices.Current())
+	}
+	if err := devices.Err(); err != nil {
+		panic(err)
+	}
+}
+```
+
+### Full client (`API`)
 
 The full API of this library can be found in [api.md](api.md).
 
@@ -54,11 +97,11 @@ func main() {
 	client := mobilerun.NewClient(
 		option.WithAPIKey("My API Key"), // defaults to os.LookupEnv("MOBILERUN_API_KEY")
 	)
-	devices, err := client.Devices.List(context.TODO(), mobilerun.DeviceListParams{})
+	page, err := client.Devices.List(context.TODO(), mobilerun.DeviceListParams{})
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("%+v\n", devices.Items)
+	fmt.Printf("%+v\n", page)
 }
 
 ```
@@ -282,8 +325,33 @@ This library provides some conveniences for working with paginated list endpoint
 
 You can use `.ListAutoPaging()` methods to iterate through items across all pages:
 
+```go
+iter := client.Devices.ListAutoPaging(context.TODO(), mobilerun.DeviceListParams{})
+// Automatically fetches more pages as needed.
+for iter.Next() {
+	device := iter.Current()
+	fmt.Printf("%+v\n", device)
+}
+if err := iter.Err(); err != nil {
+	panic(err.Error())
+}
+```
+
 Or you can use simple `.List()` methods to fetch a single page and receive a standard response object
 with additional helper methods like `.GetNextPage()`, e.g.:
+
+```go
+page, err := client.Devices.List(context.TODO(), mobilerun.DeviceListParams{})
+for page != nil {
+	for _, device := range page.Items {
+		fmt.Printf("%+v\n", device)
+	}
+	page, err = page.GetNextPage()
+}
+if err != nil {
+	panic(err.Error())
+}
+```
 
 ### Errors
 
@@ -392,7 +460,7 @@ you need to examine response headers, status codes, or other details.
 ```go
 // Create a variable to store the HTTP response
 var response *http.Response
-devices, err := client.Devices.List(
+page, err := client.Devices.List(
 	context.TODO(),
 	mobilerun.DeviceListParams{},
 	option.WithResponseInto(&response),
@@ -400,7 +468,7 @@ devices, err := client.Devices.List(
 if err != nil {
 	// handle error
 }
-fmt.Printf("%+v\n", devices)
+fmt.Printf("%+v\n", page)
 
 fmt.Printf("Status Code: %d\n", response.StatusCode)
 fmt.Printf("Headers: %+#v\n", response.Header)
@@ -491,6 +559,12 @@ You may also replace the default `http.Client` with
 `option.WithHTTPClient(client)`. Only one http client is
 accepted (this overwrites any previous client) and receives requests after any
 middleware has been applied.
+
+## Object API
+
+The object API in the `sdk` package is additive. Existing client APIs are unchanged and the complete raw client is available as `API`. Methods such as `device.Name()` and `task.Status()` read the last response (`Info()`) without making a request; call `Refresh(ctx)` to update it. Every method takes a `context.Context` for cancellation and deadlines, and returns errors that wrap the client's `*mobilerun.Error`. Lists return the first page of handles; `ListAutoPaging` iterates every page. Waits poll with bounded requests and back off on 408/409/429/5xx; `sdk.WithWaitTimeout`, `sdk.WithReadyTimeout`, `sdk.WithoutWaitReady` and `sdk.WithoutWait` are request options understood by the object layer. Handles returned by `New` (or a declared factory such as `Start`) own cleanup: `Close(ctx)` disposes them once; handles from `Get`, `List` or `FromID` never dispose.
+
+Examples: see [`examples/`](https://github.com/droidrun/mobilerun-sdk-go/tree/HEAD/examples)
 
 ## Semantic versioning
 

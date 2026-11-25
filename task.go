@@ -16,9 +16,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 	"github.com/droidrun/mobilerun-sdk-go/v6/shared/constant"
 )
 
@@ -36,6 +36,8 @@ type TaskService struct {
 	Screenshots TaskScreenshotService
 	// Tasks API
 	UiStates TaskUiStateService
+	// Tasks API
+	Approvals TaskApprovalService
 }
 
 // NewTaskService generates a new service that applies the given options to each
@@ -46,11 +48,12 @@ func NewTaskService(opts ...option.RequestOption) (r TaskService) {
 	r.options = opts
 	r.Screenshots = NewTaskScreenshotService(opts...)
 	r.UiStates = NewTaskUiStateService(opts...)
+	r.Approvals = NewTaskApprovalService(opts...)
 	return
 }
 
 // Get full details of a task by ID.
-func (r *TaskService) Get(ctx context.Context, taskID string, opts ...option.RequestOption) (res *TaskGetResponse, err error) {
+func (r *TaskService) Get(ctx context.Context, taskID string, opts ...option.RequestOption) (res *TaskResponse, err error) {
 	opts = slices.Concat(r.options, opts)
 	if taskID == "" {
 		err = errors.New("missing required task_id parameter")
@@ -62,11 +65,26 @@ func (r *TaskService) Get(ctx context.Context, taskID string, opts ...option.Req
 }
 
 // List tasks with optional filtering, sorting, and pagination.
-func (r *TaskService) List(ctx context.Context, query TaskListParams, opts ...option.RequestOption) (res *TaskListResponse, err error) {
+func (r *TaskService) List(ctx context.Context, query TaskListParams, opts ...option.RequestOption) (res *pagination.Page[TaskListItem], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "tasks"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// List tasks with optional filtering, sorting, and pagination.
+func (r *TaskService) ListAutoPaging(ctx context.Context, query TaskListParams, opts ...option.RequestOption) *pagination.PageAutoPager[TaskListItem] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Attach to a running task and receive its events as an SSE stream.
@@ -137,6 +155,15 @@ func (r *TaskService) SendMessage(ctx context.Context, taskID string, body TaskS
 	return res, err
 }
 
+// Task outcome counts per time bucket, success rate, duration percentiles and top
+// failure reasons for a window. Tasks are bucketed by creation time.
+func (r *TaskService) Stats(ctx context.Context, query TaskStatsParams, opts ...option.RequestOption) (res *TaskStatsResponse, err error) {
+	opts = slices.Concat(r.options, opts)
+	path := "tasks/stats"
+	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
+	return res, err
+}
+
 // Cancel a running task. Returns an error if the task is already in a terminal
 // state.
 func (r *TaskService) Stop(ctx context.Context, taskID string, opts ...option.RequestOption) (res *TaskStopResponse, err error) {
@@ -150,9 +177,220 @@ func (r *TaskService) Stop(ctx context.Context, taskID string, opts ...option.Re
 	return res, err
 }
 
-type TaskGetResponse struct {
+// A human approval the running task is waiting for.
+type PendingApproval struct {
+	// Identifies the approval
+	ApprovalID string `json:"approvalId" api:"required" format:"uuid"`
+	// Kind-specific, non-secret context (payment_card: label, secretGroup,
+	// targetPackage, targetHost?)
+	Details map[string]any `json:"details" api:"required"`
+	// Without an answer by this time the task fails
+	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
+	// What is being approved, e.g. payment_card; new kinds may be added
+	Kind string `json:"kind" api:"required"`
+	// Device the task runs on, so a client can show it next to the approval
+	DeviceID string `json:"deviceId" api:"nullable" format:"uuid"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ApprovalID  respjson.Field
+		Details     respjson.Field
+		ExpiresAt   respjson.Field
+		Kind        respjson.Field
+		DeviceID    respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r PendingApproval) RawJSON() string { return r.JSON.raw }
+func (r *PendingApproval) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Task representation for list endpoints — omits the large trajectory field.
+type TaskListItem struct {
+	ID        string `json:"id" api:"required" format:"uuid"`
+	DeviceID  string `json:"deviceId" api:"required" format:"uuid"`
+	DisplayID int64  `json:"displayId" api:"required"`
+	// The LLM model identifier to use for the task (e.g. 'gemini/gemini-2.5-flash')
+	LlmModel string `json:"llmModel" api:"required"`
+	OwnerID  string `json:"ownerId" api:"required"`
+	// Any of "prepared", "queued", "created", "running", "cancelling", "completed",
+	// "failed", "cancelled".
+	Status    TaskListItemStatus `json:"status" api:"required"`
+	Task      string             `json:"task" api:"required"`
+	TmpDevice bool               `json:"tmpDevice" api:"required"`
+	// Deprecated: use ownerId (tenancy) / createdBy (actor).
+	//
+	// Deprecated: deprecated
+	UserID            string                   `json:"userId" api:"required"`
+	Accessibility     bool                     `json:"accessibility"`
+	Apps              []string                 `json:"apps"`
+	CancelRequestedAt time.Time                `json:"cancelRequestedAt" api:"nullable" format:"date-time"`
+	ClaimedAt         time.Time                `json:"claimedAt" api:"nullable" format:"date-time"`
+	ContinueOnFailure bool                     `json:"continueOnFailure"`
+	CreatedAt         time.Time                `json:"createdAt" format:"date-time"`
+	CreatedBy         string                   `json:"createdBy" api:"nullable"`
+	Credentials       []TaskListItemCredential `json:"credentials"`
+	CreditsUsed       float64                  `json:"creditsUsed" api:"nullable"`
+	DispatchedAt      time.Time                `json:"dispatchedAt" api:"nullable" format:"date-time"`
+	ExecutionTimeout  int64                    `json:"executionTimeout"`
+	Files             []string                 `json:"files"`
+	FinishedAt        time.Time                `json:"finishedAt" api:"nullable" format:"date-time"`
+	// Whether human-like input was requested. Always equal to the deprecated stealth
+	// field.
+	Humanize     bool           `json:"humanize"`
+	MaxSteps     int64          `json:"maxSteps"`
+	Message      string         `json:"message" api:"nullable"`
+	Output       map[string]any `json:"output" api:"nullable"`
+	OutputSchema map[string]any `json:"outputSchema" api:"nullable"`
+	// A human approval the running task is waiting for.
+	PendingApproval   PendingApproval `json:"pendingApproval" api:"nullable"`
+	Reasoning         bool            `json:"reasoning"`
+	RecordingDeviceID string          `json:"recordingDeviceId" api:"nullable" format:"uuid"`
+	// Record device video for the whole task and persist a retrievable reference
+	RecordingEnabled bool   `json:"recordingEnabled"`
+	RecordingID      string `json:"recordingId" api:"nullable" format:"uuid"`
+	// Where the task came from: 'api' for tasks created via POST /tasks, 'agent' for
+	// tasks spawned by an agent step or created with internal=true. 'source'
+	// classifies visibility only: tasks created with internal=true stay controllable
+	// via this API, while tasks spawned by an agent step are readable (status,
+	// trajectory, media) but not controllable.
+	//
+	// Any of "api", "agent".
+	Source TaskListItemSource `json:"source"`
+	// Deprecated: use humanize. Both names must agree when supplied together.
+	//
+	// Deprecated: deprecated
+	Stealth   bool   `json:"stealth"`
+	Steps     int64  `json:"steps" api:"nullable"`
+	StreamURL string `json:"streamUrl" api:"nullable"`
+	// LLM model used by sub-agent roles: executor, app_opener, structured_output
+	SubagentModel string `json:"subagentModel"`
+	Succeeded     bool   `json:"succeeded" api:"nullable"`
+	// Deprecated and ignored. Sampling behavior is controlled by the model provider.
+	//
+	// Deprecated: deprecated
+	Temperature float64   `json:"temperature"`
+	UpdatedAt   time.Time `json:"updatedAt" format:"date-time"`
+	Vision      bool      `json:"vision"`
+	// Any of "US", "BR", "FR", "DE", "IN", "JP", "KR", "ZA".
+	VpnCountry TaskListItemVpnCountry `json:"vpnCountry" api:"nullable"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID                respjson.Field
+		DeviceID          respjson.Field
+		DisplayID         respjson.Field
+		LlmModel          respjson.Field
+		OwnerID           respjson.Field
+		Status            respjson.Field
+		Task              respjson.Field
+		TmpDevice         respjson.Field
+		UserID            respjson.Field
+		Accessibility     respjson.Field
+		Apps              respjson.Field
+		CancelRequestedAt respjson.Field
+		ClaimedAt         respjson.Field
+		ContinueOnFailure respjson.Field
+		CreatedAt         respjson.Field
+		CreatedBy         respjson.Field
+		Credentials       respjson.Field
+		CreditsUsed       respjson.Field
+		DispatchedAt      respjson.Field
+		ExecutionTimeout  respjson.Field
+		Files             respjson.Field
+		FinishedAt        respjson.Field
+		Humanize          respjson.Field
+		MaxSteps          respjson.Field
+		Message           respjson.Field
+		Output            respjson.Field
+		OutputSchema      respjson.Field
+		PendingApproval   respjson.Field
+		Reasoning         respjson.Field
+		RecordingDeviceID respjson.Field
+		RecordingEnabled  respjson.Field
+		RecordingID       respjson.Field
+		Source            respjson.Field
+		Stealth           respjson.Field
+		Steps             respjson.Field
+		StreamURL         respjson.Field
+		SubagentModel     respjson.Field
+		Succeeded         respjson.Field
+		Temperature       respjson.Field
+		UpdatedAt         respjson.Field
+		Vision            respjson.Field
+		VpnCountry        respjson.Field
+		ExtraFields       map[string]respjson.Field
+		raw               string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskListItem) RawJSON() string { return r.JSON.raw }
+func (r *TaskListItem) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type TaskListItemStatus string
+
+const (
+	TaskListItemStatusPrepared   TaskListItemStatus = "prepared"
+	TaskListItemStatusQueued     TaskListItemStatus = "queued"
+	TaskListItemStatusCreated    TaskListItemStatus = "created"
+	TaskListItemStatusRunning    TaskListItemStatus = "running"
+	TaskListItemStatusCancelling TaskListItemStatus = "cancelling"
+	TaskListItemStatusCompleted  TaskListItemStatus = "completed"
+	TaskListItemStatusFailed     TaskListItemStatus = "failed"
+	TaskListItemStatusCancelled  TaskListItemStatus = "cancelled"
+)
+
+type TaskListItemCredential struct {
+	CredentialNames []string `json:"credentialNames" api:"required"`
+	PackageName     string   `json:"packageName" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		CredentialNames respjson.Field
+		PackageName     respjson.Field
+		ExtraFields     map[string]respjson.Field
+		raw             string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskListItemCredential) RawJSON() string { return r.JSON.raw }
+func (r *TaskListItemCredential) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// Where the task came from: 'api' for tasks created via POST /tasks, 'agent' for
+// tasks spawned by an agent step or created with internal=true. 'source'
+// classifies visibility only: tasks created with internal=true stay controllable
+// via this API, while tasks spawned by an agent step are readable (status,
+// trajectory, media) but not controllable.
+type TaskListItemSource string
+
+const (
+	TaskListItemSourceAPI   TaskListItemSource = "api"
+	TaskListItemSourceAgent TaskListItemSource = "agent"
+)
+
+type TaskListItemVpnCountry string
+
+const (
+	TaskListItemVpnCountryUs TaskListItemVpnCountry = "US"
+	TaskListItemVpnCountryBr TaskListItemVpnCountry = "BR"
+	TaskListItemVpnCountryFr TaskListItemVpnCountry = "FR"
+	TaskListItemVpnCountryDe TaskListItemVpnCountry = "DE"
+	TaskListItemVpnCountryIn TaskListItemVpnCountry = "IN"
+	TaskListItemVpnCountryJp TaskListItemVpnCountry = "JP"
+	TaskListItemVpnCountryKr TaskListItemVpnCountry = "KR"
+	TaskListItemVpnCountryZa TaskListItemVpnCountry = "ZA"
+)
+
+type TaskResponse struct {
 	// The task
-	Task TaskGetResponseTask `json:"task" api:"required"`
+	Task TaskListItem `json:"task" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Task        respjson.Field
@@ -162,374 +400,34 @@ type TaskGetResponse struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r TaskGetResponse) RawJSON() string { return r.JSON.raw }
-func (r *TaskGetResponse) UnmarshalJSON(data []byte) error {
+func (r TaskResponse) RawJSON() string { return r.JSON.raw }
+func (r *TaskResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-// The task
-type TaskGetResponseTask struct {
-	ID        string `json:"id" api:"required" format:"uuid"`
-	DeviceID  string `json:"deviceId" api:"required" format:"uuid"`
-	DisplayID int64  `json:"displayId" api:"required"`
-	// The LLM model identifier to use for the task (e.g. 'gemini/gemini-2.5-flash')
-	LlmModel string `json:"llmModel" api:"required"`
-	OwnerID  string `json:"ownerId" api:"required"`
-	// Any of "prepared", "queued", "created", "running", "cancelling", "completed",
-	// "failed", "cancelled".
-	Status    string `json:"status" api:"required"`
-	Task      string `json:"task" api:"required"`
-	TmpDevice bool   `json:"tmpDevice" api:"required"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID            string                          `json:"userId" api:"required"`
-	Accessibility     bool                            `json:"accessibility"`
-	Apps              []string                        `json:"apps"`
-	CancelRequestedAt time.Time                       `json:"cancelRequestedAt" api:"nullable" format:"date-time"`
-	ClaimedAt         time.Time                       `json:"claimedAt" api:"nullable" format:"date-time"`
-	ContinueOnFailure bool                            `json:"continueOnFailure"`
-	CreatedAt         time.Time                       `json:"createdAt" format:"date-time"`
-	CreatedBy         string                          `json:"createdBy" api:"nullable"`
-	Credentials       []TaskGetResponseTaskCredential `json:"credentials"`
-	CreditsUsed       float64                         `json:"creditsUsed" api:"nullable"`
-	DispatchedAt      time.Time                       `json:"dispatchedAt" api:"nullable" format:"date-time"`
-	ExecutionTimeout  int64                           `json:"executionTimeout"`
-	Files             []string                        `json:"files"`
-	FinishedAt        time.Time                       `json:"finishedAt" api:"nullable" format:"date-time"`
-	// Whether human-like input was requested. Always equal to the deprecated stealth
-	// field.
-	Humanize     bool           `json:"humanize"`
-	MaxSteps     int64          `json:"maxSteps"`
-	Message      string         `json:"message" api:"nullable"`
-	Output       map[string]any `json:"output" api:"nullable"`
-	OutputSchema map[string]any `json:"outputSchema" api:"nullable"`
-	// A human approval the running task is waiting for.
-	PendingApproval   TaskGetResponseTaskPendingApproval `json:"pendingApproval" api:"nullable"`
-	Reasoning         bool                               `json:"reasoning"`
-	RecordingDeviceID string                             `json:"recordingDeviceId" api:"nullable" format:"uuid"`
-	// Record device video for the whole task and persist a retrievable reference
-	RecordingEnabled bool   `json:"recordingEnabled"`
-	RecordingID      string `json:"recordingId" api:"nullable" format:"uuid"`
-	// Where the task came from: 'api' for tasks created via POST /tasks, 'agent' for
-	// tasks spawned by an agent step or created with internal=true. 'source'
-	// classifies visibility only: tasks created with internal=true stay controllable
-	// via this API, while tasks spawned by an agent step are readable (status,
-	// trajectory, media) but not controllable.
-	//
-	// Any of "api", "agent".
-	Source string `json:"source"`
-	// Deprecated: use humanize. Both names must agree when supplied together.
-	//
-	// Deprecated: deprecated
-	Stealth   bool   `json:"stealth"`
-	Steps     int64  `json:"steps" api:"nullable"`
-	StreamURL string `json:"streamUrl" api:"nullable"`
-	// LLM model used by sub-agent roles: executor, app_opener, structured_output
-	SubagentModel string `json:"subagentModel"`
-	Succeeded     bool   `json:"succeeded" api:"nullable"`
-	// Deprecated and ignored. Sampling behavior is controlled by the model provider.
-	//
-	// Deprecated: deprecated
-	Temperature float64   `json:"temperature"`
-	UpdatedAt   time.Time `json:"updatedAt" format:"date-time"`
-	Vision      bool      `json:"vision"`
-	// Any of "US", "BR", "FR", "DE", "IN", "JP", "KR", "ZA".
-	VpnCountry string `json:"vpnCountry" api:"nullable"`
+type TaskStatsBucketCounts struct {
+	Cancelled int64 `json:"cancelled" api:"required"`
+	Failed    int64 `json:"failed" api:"required"`
+	// Tasks not finished yet (prepared, queued, created, running, cancelling)
+	Running int64 `json:"running" api:"required"`
+	// Bucket start (UTC, floored to the bucket size)
+	Start     time.Time `json:"start" api:"required" format:"date-time"`
+	Succeeded int64     `json:"succeeded" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
-		ID                respjson.Field
-		DeviceID          respjson.Field
-		DisplayID         respjson.Field
-		LlmModel          respjson.Field
-		OwnerID           respjson.Field
-		Status            respjson.Field
-		Task              respjson.Field
-		TmpDevice         respjson.Field
-		UserID            respjson.Field
-		Accessibility     respjson.Field
-		Apps              respjson.Field
-		CancelRequestedAt respjson.Field
-		ClaimedAt         respjson.Field
-		ContinueOnFailure respjson.Field
-		CreatedAt         respjson.Field
-		CreatedBy         respjson.Field
-		Credentials       respjson.Field
-		CreditsUsed       respjson.Field
-		DispatchedAt      respjson.Field
-		ExecutionTimeout  respjson.Field
-		Files             respjson.Field
-		FinishedAt        respjson.Field
-		Humanize          respjson.Field
-		MaxSteps          respjson.Field
-		Message           respjson.Field
-		Output            respjson.Field
-		OutputSchema      respjson.Field
-		PendingApproval   respjson.Field
-		Reasoning         respjson.Field
-		RecordingDeviceID respjson.Field
-		RecordingEnabled  respjson.Field
-		RecordingID       respjson.Field
-		Source            respjson.Field
-		Stealth           respjson.Field
-		Steps             respjson.Field
-		StreamURL         respjson.Field
-		SubagentModel     respjson.Field
-		Succeeded         respjson.Field
-		Temperature       respjson.Field
-		UpdatedAt         respjson.Field
-		Vision            respjson.Field
-		VpnCountry        respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskGetResponseTask) RawJSON() string { return r.JSON.raw }
-func (r *TaskGetResponseTask) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type TaskGetResponseTaskCredential struct {
-	CredentialNames []string `json:"credentialNames" api:"required"`
-	PackageName     string   `json:"packageName" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CredentialNames respjson.Field
-		PackageName     respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskGetResponseTaskCredential) RawJSON() string { return r.JSON.raw }
-func (r *TaskGetResponseTaskCredential) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A human approval the running task is waiting for.
-type TaskGetResponseTaskPendingApproval struct {
-	// Identifies the approval
-	ApprovalID string `json:"approvalId" api:"required" format:"uuid"`
-	// Kind-specific, non-secret context (payment_card: label, secretGroup,
-	// targetPackage, targetHost?)
-	Details map[string]any `json:"details" api:"required"`
-	// Without an answer by this time the task fails
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// What is being approved, e.g. payment_card; new kinds may be added
-	Kind string `json:"kind" api:"required"`
-	// Device the task runs on, so a client can show it next to the approval
-	DeviceID string `json:"deviceId" api:"nullable" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ApprovalID  respjson.Field
-		Details     respjson.Field
-		ExpiresAt   respjson.Field
-		Kind        respjson.Field
-		DeviceID    respjson.Field
+		Cancelled   respjson.Field
+		Failed      respjson.Field
+		Running     respjson.Field
+		Start       respjson.Field
+		Succeeded   respjson.Field
 		ExtraFields map[string]respjson.Field
 		raw         string
 	} `json:"-"`
 }
 
 // Returns the unmodified JSON received from the API
-func (r TaskGetResponseTaskPendingApproval) RawJSON() string { return r.JSON.raw }
-func (r *TaskGetResponseTaskPendingApproval) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type TaskListResponse struct {
-	// The paginated items
-	Items []TaskListResponseItem `json:"items" api:"required"`
-	// Pagination metadata
-	Pagination shared.PaginationMeta `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskListResponse) RawJSON() string { return r.JSON.raw }
-func (r *TaskListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Task representation for list endpoints — omits the large trajectory field.
-type TaskListResponseItem struct {
-	ID        string `json:"id" api:"required" format:"uuid"`
-	DeviceID  string `json:"deviceId" api:"required" format:"uuid"`
-	DisplayID int64  `json:"displayId" api:"required"`
-	// The LLM model identifier to use for the task (e.g. 'gemini/gemini-2.5-flash')
-	LlmModel string `json:"llmModel" api:"required"`
-	OwnerID  string `json:"ownerId" api:"required"`
-	// Any of "prepared", "queued", "created", "running", "cancelling", "completed",
-	// "failed", "cancelled".
-	Status    string `json:"status" api:"required"`
-	Task      string `json:"task" api:"required"`
-	TmpDevice bool   `json:"tmpDevice" api:"required"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID            string                           `json:"userId" api:"required"`
-	Accessibility     bool                             `json:"accessibility"`
-	Apps              []string                         `json:"apps"`
-	CancelRequestedAt time.Time                        `json:"cancelRequestedAt" api:"nullable" format:"date-time"`
-	ClaimedAt         time.Time                        `json:"claimedAt" api:"nullable" format:"date-time"`
-	ContinueOnFailure bool                             `json:"continueOnFailure"`
-	CreatedAt         time.Time                        `json:"createdAt" format:"date-time"`
-	CreatedBy         string                           `json:"createdBy" api:"nullable"`
-	Credentials       []TaskListResponseItemCredential `json:"credentials"`
-	CreditsUsed       float64                          `json:"creditsUsed" api:"nullable"`
-	DispatchedAt      time.Time                        `json:"dispatchedAt" api:"nullable" format:"date-time"`
-	ExecutionTimeout  int64                            `json:"executionTimeout"`
-	Files             []string                         `json:"files"`
-	FinishedAt        time.Time                        `json:"finishedAt" api:"nullable" format:"date-time"`
-	// Whether human-like input was requested. Always equal to the deprecated stealth
-	// field.
-	Humanize     bool           `json:"humanize"`
-	MaxSteps     int64          `json:"maxSteps"`
-	Message      string         `json:"message" api:"nullable"`
-	Output       map[string]any `json:"output" api:"nullable"`
-	OutputSchema map[string]any `json:"outputSchema" api:"nullable"`
-	// A human approval the running task is waiting for.
-	PendingApproval   TaskListResponseItemPendingApproval `json:"pendingApproval" api:"nullable"`
-	Reasoning         bool                                `json:"reasoning"`
-	RecordingDeviceID string                              `json:"recordingDeviceId" api:"nullable" format:"uuid"`
-	// Record device video for the whole task and persist a retrievable reference
-	RecordingEnabled bool   `json:"recordingEnabled"`
-	RecordingID      string `json:"recordingId" api:"nullable" format:"uuid"`
-	// Where the task came from: 'api' for tasks created via POST /tasks, 'agent' for
-	// tasks spawned by an agent step or created with internal=true. 'source'
-	// classifies visibility only: tasks created with internal=true stay controllable
-	// via this API, while tasks spawned by an agent step are readable (status,
-	// trajectory, media) but not controllable.
-	//
-	// Any of "api", "agent".
-	Source string `json:"source"`
-	// Deprecated: use humanize. Both names must agree when supplied together.
-	//
-	// Deprecated: deprecated
-	Stealth   bool   `json:"stealth"`
-	Steps     int64  `json:"steps" api:"nullable"`
-	StreamURL string `json:"streamUrl" api:"nullable"`
-	// LLM model used by sub-agent roles: executor, app_opener, structured_output
-	SubagentModel string `json:"subagentModel"`
-	Succeeded     bool   `json:"succeeded" api:"nullable"`
-	// Deprecated and ignored. Sampling behavior is controlled by the model provider.
-	//
-	// Deprecated: deprecated
-	Temperature float64   `json:"temperature"`
-	UpdatedAt   time.Time `json:"updatedAt" format:"date-time"`
-	Vision      bool      `json:"vision"`
-	// Any of "US", "BR", "FR", "DE", "IN", "JP", "KR", "ZA".
-	VpnCountry string `json:"vpnCountry" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                respjson.Field
-		DeviceID          respjson.Field
-		DisplayID         respjson.Field
-		LlmModel          respjson.Field
-		OwnerID           respjson.Field
-		Status            respjson.Field
-		Task              respjson.Field
-		TmpDevice         respjson.Field
-		UserID            respjson.Field
-		Accessibility     respjson.Field
-		Apps              respjson.Field
-		CancelRequestedAt respjson.Field
-		ClaimedAt         respjson.Field
-		ContinueOnFailure respjson.Field
-		CreatedAt         respjson.Field
-		CreatedBy         respjson.Field
-		Credentials       respjson.Field
-		CreditsUsed       respjson.Field
-		DispatchedAt      respjson.Field
-		ExecutionTimeout  respjson.Field
-		Files             respjson.Field
-		FinishedAt        respjson.Field
-		Humanize          respjson.Field
-		MaxSteps          respjson.Field
-		Message           respjson.Field
-		Output            respjson.Field
-		OutputSchema      respjson.Field
-		PendingApproval   respjson.Field
-		Reasoning         respjson.Field
-		RecordingDeviceID respjson.Field
-		RecordingEnabled  respjson.Field
-		RecordingID       respjson.Field
-		Source            respjson.Field
-		Stealth           respjson.Field
-		Steps             respjson.Field
-		StreamURL         respjson.Field
-		SubagentModel     respjson.Field
-		Succeeded         respjson.Field
-		Temperature       respjson.Field
-		UpdatedAt         respjson.Field
-		Vision            respjson.Field
-		VpnCountry        respjson.Field
-		ExtraFields       map[string]respjson.Field
-		raw               string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *TaskListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type TaskListResponseItemCredential struct {
-	CredentialNames []string `json:"credentialNames" api:"required"`
-	PackageName     string   `json:"packageName" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CredentialNames respjson.Field
-		PackageName     respjson.Field
-		ExtraFields     map[string]respjson.Field
-		raw             string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskListResponseItemCredential) RawJSON() string { return r.JSON.raw }
-func (r *TaskListResponseItemCredential) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A human approval the running task is waiting for.
-type TaskListResponseItemPendingApproval struct {
-	// Identifies the approval
-	ApprovalID string `json:"approvalId" api:"required" format:"uuid"`
-	// Kind-specific, non-secret context (payment_card: label, secretGroup,
-	// targetPackage, targetHost?)
-	Details map[string]any `json:"details" api:"required"`
-	// Without an answer by this time the task fails
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// What is being approved, e.g. payment_card; new kinds may be added
-	Kind string `json:"kind" api:"required"`
-	// Device the task runs on, so a client can show it next to the approval
-	DeviceID string `json:"deviceId" api:"nullable" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ApprovalID  respjson.Field
-		Details     respjson.Field
-		ExpiresAt   respjson.Field
-		Kind        respjson.Field
-		DeviceID    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskListResponseItemPendingApproval) RawJSON() string { return r.JSON.raw }
-func (r *TaskListResponseItemPendingApproval) UnmarshalJSON(data []byte) error {
+func (r TaskStatsBucketCounts) RawJSON() string { return r.JSON.raw }
+func (r *TaskStatsBucketCounts) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -550,7 +448,7 @@ type TaskGetStatusResponse struct {
 	// Structured output if outputSchema was set
 	Output map[string]any `json:"output" api:"nullable"`
 	// A human approval the running task is waiting for.
-	PendingApproval TaskGetStatusResponsePendingApproval `json:"pendingApproval" api:"nullable"`
+	PendingApproval PendingApproval `json:"pendingApproval" api:"nullable"`
 	// Device ID associated with recordingId
 	RecordingDeviceID string `json:"recordingDeviceId" api:"nullable" format:"uuid"`
 	// ID of the task's whole-task video recording, if recordingEnabled was set
@@ -639,37 +537,6 @@ type TaskGetStatusResponseExecutionCheckpoint struct {
 // Returns the unmodified JSON received from the API
 func (r TaskGetStatusResponseExecutionCheckpoint) RawJSON() string { return r.JSON.raw }
 func (r *TaskGetStatusResponseExecutionCheckpoint) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A human approval the running task is waiting for.
-type TaskGetStatusResponsePendingApproval struct {
-	// Identifies the approval
-	ApprovalID string `json:"approvalId" api:"required" format:"uuid"`
-	// Kind-specific, non-secret context (payment_card: label, secretGroup,
-	// targetPackage, targetHost?)
-	Details map[string]any `json:"details" api:"required"`
-	// Without an answer by this time the task fails
-	ExpiresAt time.Time `json:"expiresAt" api:"required" format:"date-time"`
-	// What is being approved, e.g. payment_card; new kinds may be added
-	Kind string `json:"kind" api:"required"`
-	// Device the task runs on, so a client can show it next to the approval
-	DeviceID string `json:"deviceId" api:"nullable" format:"uuid"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ApprovalID  respjson.Field
-		Details     respjson.Field
-		ExpiresAt   respjson.Field
-		Kind        respjson.Field
-		DeviceID    respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r TaskGetStatusResponsePendingApproval) RawJSON() string { return r.JSON.raw }
-func (r *TaskGetStatusResponsePendingApproval) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -2414,6 +2281,113 @@ func (r *TaskSendMessageResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
+type TaskStatsResponse struct {
+	// Any of "hour", "day".
+	Bucket TaskStatsResponseBucket `json:"bucket" api:"required"`
+	// Every bucket in the window, zero-filled
+	Buckets []TaskStatsBucketCounts `json:"buckets" api:"required"`
+	// finishedAt - claimedAt of finished tasks created in the window
+	DurationSeconds TaskStatsResponseDurationSeconds `json:"durationSeconds" api:"required"`
+	// Window start (UTC, inclusive)
+	From time.Time `json:"from" api:"required" format:"date-time"`
+	// Window end (UTC, exclusive)
+	To time.Time `json:"to" api:"required" format:"date-time"`
+	// Up to 5 most common failure messages
+	TopFailures []TaskStatsResponseTopFailure `json:"topFailures" api:"required"`
+	Totals      TaskStatsResponseTotals       `json:"totals" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Bucket          respjson.Field
+		Buckets         respjson.Field
+		DurationSeconds respjson.Field
+		From            respjson.Field
+		To              respjson.Field
+		TopFailures     respjson.Field
+		Totals          respjson.Field
+		ExtraFields     map[string]respjson.Field
+		raw             string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskStatsResponse) RawJSON() string { return r.JSON.raw }
+func (r *TaskStatsResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type TaskStatsResponseBucket string
+
+const (
+	TaskStatsResponseBucketHour TaskStatsResponseBucket = "hour"
+	TaskStatsResponseBucketDay  TaskStatsResponseBucket = "day"
+)
+
+// finishedAt - claimedAt of finished tasks created in the window
+type TaskStatsResponseDurationSeconds struct {
+	// Median seconds from claim to finish
+	P50 float64 `json:"p50" api:"nullable"`
+	// 95th percentile seconds from claim to finish
+	P95 float64 `json:"p95" api:"nullable"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		P50         respjson.Field
+		P95         respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskStatsResponseDurationSeconds) RawJSON() string { return r.JSON.raw }
+func (r *TaskStatsResponseDurationSeconds) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type TaskStatsResponseTopFailure struct {
+	Count int64 `json:"count" api:"required"`
+	// Failure message: first line, trimmed, max 80 chars
+	Message string `json:"message" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Count       respjson.Field
+		Message     respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskStatsResponseTopFailure) RawJSON() string { return r.JSON.raw }
+func (r *TaskStatsResponseTopFailure) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type TaskStatsResponseTotals struct {
+	Cancelled int64 `json:"cancelled" api:"required"`
+	Failed    int64 `json:"failed" api:"required"`
+	// Tasks not finished yet (prepared, queued, created, running, cancelling)
+	Running   int64 `json:"running" api:"required"`
+	Succeeded int64 `json:"succeeded" api:"required"`
+	// succeeded / (succeeded + failed); null when nothing finished
+	SuccessRate float64 `json:"successRate" api:"nullable"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Cancelled   respjson.Field
+		Failed      respjson.Field
+		Running     respjson.Field
+		Succeeded   respjson.Field
+		SuccessRate respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r TaskStatsResponseTotals) RawJSON() string { return r.JSON.raw }
+func (r *TaskStatsResponseTotals) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type TaskStopResponse struct {
 	// Whether the task was cancelled
 	Cancelled bool `json:"cancelled" api:"required"`
@@ -2678,3 +2652,45 @@ func (r TaskSendMessageParams) MarshalJSON() (data []byte, err error) {
 func (r *TaskSendMessageParams) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type TaskStatsParams struct {
+	// Window start, ISO 8601 UTC (inclusive).
+	From time.Time `query:"from" api:"required" format:"date-time" json:"-"`
+	// Window end, ISO 8601 UTC (exclusive). At most 90 days after `from`.
+	To time.Time `query:"to" api:"required" format:"date-time" json:"-"`
+	// Only tasks created via the API ('api') or tasks spawned by an agent step or
+	// created with internal=true ('agent').
+	//
+	// Any of "api", "agent".
+	Source TaskStatsParamsSource `query:"source,omitzero" json:"-"`
+	// Bucket size. `hour` only for windows of at most 7 days.
+	//
+	// Any of "hour", "day".
+	Bucket TaskStatsParamsBucket `query:"bucket,omitzero" json:"-"`
+	paramObj
+}
+
+// URLQuery serializes [TaskStatsParams]'s query parameters as `url.Values`.
+func (r TaskStatsParams) URLQuery() (v url.Values, err error) {
+	return apiquery.MarshalWithSettings(r, apiquery.QuerySettings{
+		ArrayFormat:  apiquery.ArrayQueryFormatComma,
+		NestedFormat: apiquery.NestedQueryFormatBrackets,
+	})
+}
+
+// Bucket size. `hour` only for windows of at most 7 days.
+type TaskStatsParamsBucket string
+
+const (
+	TaskStatsParamsBucketHour TaskStatsParamsBucket = "hour"
+	TaskStatsParamsBucketDay  TaskStatsParamsBucket = "day"
+)
+
+// Only tasks created via the API ('api') or tasks spawned by an agent step or
+// created with internal=true ('agent').
+type TaskStatsParamsSource string
+
+const (
+	TaskStatsParamsSourceAPI   TaskStatsParamsSource = "api"
+	TaskStatsParamsSourceAgent TaskStatsParamsSource = "agent"
+)

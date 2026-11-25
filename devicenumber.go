@@ -87,9 +87,111 @@ func (r *DeviceNumberService) Unbind(ctx context.Context, deviceID string, body 
 	return res, err
 }
 
+type Binding struct {
+	BoundAt     time.Time `json:"boundAt" api:"required" format:"date-time"`
+	NumberID    string    `json:"numberId" api:"required"`
+	PhoneNumber string    `json:"phoneNumber" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		BoundAt     respjson.Field
+		NumberID    respjson.Field
+		PhoneNumber respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r Binding) RawJSON() string { return r.JSON.raw }
+func (r *Binding) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SimLine struct {
+	Carrier       SimLineCarrier `json:"carrier" api:"required"`
+	DefaultNumber bool           `json:"defaultNumber" api:"required"`
+	// Any of "simulated", "uicc", "esim", "unknown".
+	Kind   SimLineKind `json:"kind" api:"required"`
+	LineID string      `json:"lineId" api:"required"`
+	// Any of "backend_default", "caller", "unknown".
+	NumberSource SimLineNumberSource `json:"numberSource" api:"required"`
+	// Any of "pending", "active", "inactive", "failed", "unknown".
+	State       SimLineState `json:"state" api:"required"`
+	Iccid       string       `json:"iccid"`
+	PhoneNumber string       `json:"phoneNumber"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Carrier       respjson.Field
+		DefaultNumber respjson.Field
+		Kind          respjson.Field
+		LineID        respjson.Field
+		NumberSource  respjson.Field
+		State         respjson.Field
+		Iccid         respjson.Field
+		PhoneNumber   respjson.Field
+		ExtraFields   map[string]respjson.Field
+		raw           string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r SimLine) RawJSON() string { return r.JSON.raw }
+func (r *SimLine) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SimLineCarrier struct {
+	CountryISO string `json:"countryIso" api:"required"`
+	Mcc        string `json:"mcc" api:"required"`
+	Mnc        string `json:"mnc" api:"required"`
+	Name       string `json:"name" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		CountryISO  respjson.Field
+		Mcc         respjson.Field
+		Mnc         respjson.Field
+		Name        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r SimLineCarrier) RawJSON() string { return r.JSON.raw }
+func (r *SimLineCarrier) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type SimLineKind string
+
+const (
+	SimLineKindSimulated SimLineKind = "simulated"
+	SimLineKindUicc      SimLineKind = "uicc"
+	SimLineKindEsim      SimLineKind = "esim"
+	SimLineKindUnknown   SimLineKind = "unknown"
+)
+
+type SimLineNumberSource string
+
+const (
+	SimLineNumberSourceBackendDefault SimLineNumberSource = "backend_default"
+	SimLineNumberSourceCaller         SimLineNumberSource = "caller"
+	SimLineNumberSourceUnknown        SimLineNumberSource = "unknown"
+)
+
+type SimLineState string
+
+const (
+	SimLineStatePending  SimLineState = "pending"
+	SimLineStateActive   SimLineState = "active"
+	SimLineStateInactive SimLineState = "inactive"
+	SimLineStateFailed   SimLineState = "failed"
+	SimLineStateUnknown  SimLineState = "unknown"
+)
+
 type DeviceNumberGetResponse struct {
-	Binding DeviceNumberGetResponseBinding `json:"binding" api:"required"`
-	Line    DeviceNumberGetResponseLine    `json:"line" api:"required"`
+	Binding Binding `json:"binding" api:"required"`
+	Line    SimLine `json:"line" api:"required"`
 	// A URL to the JSON Schema for this object.
 	Schema string `json:"$schema" format:"uri"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -108,84 +210,9 @@ func (r *DeviceNumberGetResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceNumberGetResponseBinding struct {
-	BoundAt     time.Time `json:"boundAt" api:"required" format:"date-time"`
-	NumberID    string    `json:"numberId" api:"required"`
-	PhoneNumber string    `json:"phoneNumber" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		NumberID    respjson.Field
-		PhoneNumber respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberGetResponseBinding) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberGetResponseBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberGetResponseLine struct {
-	Carrier       DeviceNumberGetResponseLineCarrier `json:"carrier" api:"required"`
-	DefaultNumber bool                               `json:"defaultNumber" api:"required"`
-	// Any of "simulated", "uicc", "esim", "unknown".
-	Kind   string `json:"kind" api:"required"`
-	LineID string `json:"lineId" api:"required"`
-	// Any of "backend_default", "caller", "unknown".
-	NumberSource string `json:"numberSource" api:"required"`
-	// Any of "pending", "active", "inactive", "failed", "unknown".
-	State       string `json:"state" api:"required"`
-	Iccid       string `json:"iccid"`
-	PhoneNumber string `json:"phoneNumber"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Carrier       respjson.Field
-		DefaultNumber respjson.Field
-		Kind          respjson.Field
-		LineID        respjson.Field
-		NumberSource  respjson.Field
-		State         respjson.Field
-		Iccid         respjson.Field
-		PhoneNumber   respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberGetResponseLine) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberGetResponseLine) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberGetResponseLineCarrier struct {
-	CountryISO string `json:"countryIso" api:"required"`
-	Mcc        string `json:"mcc" api:"required"`
-	Mnc        string `json:"mnc" api:"required"`
-	Name       string `json:"name" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CountryISO  respjson.Field
-		Mcc         respjson.Field
-		Mnc         respjson.Field
-		Name        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberGetResponseLineCarrier) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberGetResponseLineCarrier) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceNumberBindResponse struct {
-	Binding DeviceNumberBindResponseBinding `json:"binding" api:"required"`
-	Line    DeviceNumberBindResponseLine    `json:"line" api:"required"`
+	Binding Binding `json:"binding" api:"required"`
+	Line    SimLine `json:"line" api:"required"`
 	// A URL to the JSON Schema for this object.
 	Schema string `json:"$schema" format:"uri"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -204,84 +231,9 @@ func (r *DeviceNumberBindResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type DeviceNumberBindResponseBinding struct {
-	BoundAt     time.Time `json:"boundAt" api:"required" format:"date-time"`
-	NumberID    string    `json:"numberId" api:"required"`
-	PhoneNumber string    `json:"phoneNumber" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		NumberID    respjson.Field
-		PhoneNumber respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberBindResponseBinding) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberBindResponseBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberBindResponseLine struct {
-	Carrier       DeviceNumberBindResponseLineCarrier `json:"carrier" api:"required"`
-	DefaultNumber bool                                `json:"defaultNumber" api:"required"`
-	// Any of "simulated", "uicc", "esim", "unknown".
-	Kind   string `json:"kind" api:"required"`
-	LineID string `json:"lineId" api:"required"`
-	// Any of "backend_default", "caller", "unknown".
-	NumberSource string `json:"numberSource" api:"required"`
-	// Any of "pending", "active", "inactive", "failed", "unknown".
-	State       string `json:"state" api:"required"`
-	Iccid       string `json:"iccid"`
-	PhoneNumber string `json:"phoneNumber"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Carrier       respjson.Field
-		DefaultNumber respjson.Field
-		Kind          respjson.Field
-		LineID        respjson.Field
-		NumberSource  respjson.Field
-		State         respjson.Field
-		Iccid         respjson.Field
-		PhoneNumber   respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberBindResponseLine) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberBindResponseLine) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberBindResponseLineCarrier struct {
-	CountryISO string `json:"countryIso" api:"required"`
-	Mcc        string `json:"mcc" api:"required"`
-	Mnc        string `json:"mnc" api:"required"`
-	Name       string `json:"name" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CountryISO  respjson.Field
-		Mcc         respjson.Field
-		Mnc         respjson.Field
-		Name        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberBindResponseLineCarrier) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberBindResponseLineCarrier) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 type DeviceNumberUnbindResponse struct {
-	Binding DeviceNumberUnbindResponseBinding `json:"binding" api:"required"`
-	Line    DeviceNumberUnbindResponseLine    `json:"line" api:"required"`
+	Binding Binding `json:"binding" api:"required"`
+	Line    SimLine `json:"line" api:"required"`
 	// A URL to the JSON Schema for this object.
 	Schema string `json:"$schema" format:"uri"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -297,81 +249,6 @@ type DeviceNumberUnbindResponse struct {
 // Returns the unmodified JSON received from the API
 func (r DeviceNumberUnbindResponse) RawJSON() string { return r.JSON.raw }
 func (r *DeviceNumberUnbindResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberUnbindResponseBinding struct {
-	BoundAt     time.Time `json:"boundAt" api:"required" format:"date-time"`
-	NumberID    string    `json:"numberId" api:"required"`
-	PhoneNumber string    `json:"phoneNumber" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BoundAt     respjson.Field
-		NumberID    respjson.Field
-		PhoneNumber respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberUnbindResponseBinding) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberUnbindResponseBinding) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberUnbindResponseLine struct {
-	Carrier       DeviceNumberUnbindResponseLineCarrier `json:"carrier" api:"required"`
-	DefaultNumber bool                                  `json:"defaultNumber" api:"required"`
-	// Any of "simulated", "uicc", "esim", "unknown".
-	Kind   string `json:"kind" api:"required"`
-	LineID string `json:"lineId" api:"required"`
-	// Any of "backend_default", "caller", "unknown".
-	NumberSource string `json:"numberSource" api:"required"`
-	// Any of "pending", "active", "inactive", "failed", "unknown".
-	State       string `json:"state" api:"required"`
-	Iccid       string `json:"iccid"`
-	PhoneNumber string `json:"phoneNumber"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Carrier       respjson.Field
-		DefaultNumber respjson.Field
-		Kind          respjson.Field
-		LineID        respjson.Field
-		NumberSource  respjson.Field
-		State         respjson.Field
-		Iccid         respjson.Field
-		PhoneNumber   respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberUnbindResponseLine) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberUnbindResponseLine) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type DeviceNumberUnbindResponseLineCarrier struct {
-	CountryISO string `json:"countryIso" api:"required"`
-	Mcc        string `json:"mcc" api:"required"`
-	Mnc        string `json:"mnc" api:"required"`
-	Name       string `json:"name" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		CountryISO  respjson.Field
-		Mcc         respjson.Field
-		Mnc         respjson.Field
-		Name        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r DeviceNumberUnbindResponseLineCarrier) RawJSON() string { return r.JSON.raw }
-func (r *DeviceNumberUnbindResponseLineCarrier) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
