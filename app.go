@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // AppService contains methods and other services that help with interacting with
@@ -52,11 +52,26 @@ func (r *AppService) Get(ctx context.Context, id string, opts ...option.RequestO
 }
 
 // Retrieves a paginated list of apps with filtering and search capabilities
-func (r *AppService) List(ctx context.Context, query AppListParams, opts ...option.RequestOption) (res *AppListResponse, err error) {
+func (r *AppService) List(ctx context.Context, query AppListParams, opts ...option.RequestOption) (res *pagination.Page[AppListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "apps"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Retrieves a paginated list of apps with filtering and search capabilities
+func (r *AppService) ListAutoPaging(ctx context.Context, query AppListParams, opts ...option.RequestOption) *pagination.PageAutoPager[AppListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Deletes an uploaded app by ID. Removes its files and metadata.
@@ -142,23 +157,7 @@ func (r *AppService) StorageUsage(ctx context.Context, opts ...option.RequestOpt
 	return res, err
 }
 
-type AppGetResponse struct {
-	Data AppGetResponseData `json:"data" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Data        respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AppGetResponse) RawJSON() string { return r.JSON.raw }
-func (r *AppGetResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AppGetResponseData struct {
+type App struct {
 	ID            string    `json:"id" api:"required" format:"uuid"`
 	AppStoreID    int64     `json:"appStoreId" api:"required"`
 	BundleID      string    `json:"bundleId" api:"required"`
@@ -168,8 +167,8 @@ type AppGetResponseData struct {
 	DisplayName   string    `json:"displayName" api:"required"`
 	IconURL       string    `json:"iconURL" api:"required"`
 	// Any of "android", "ios".
-	Platform  string    `json:"platform" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
+	Platform  AppPlatform `json:"platform" api:"required"`
+	UpdatedAt time.Time   `json:"updatedAt" api:"required" format:"date-time"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID            respjson.Field
@@ -188,91 +187,19 @@ type AppGetResponseData struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r AppGetResponseData) RawJSON() string { return r.JSON.raw }
-func (r *AppGetResponseData) UnmarshalJSON(data []byte) error {
+func (r App) RawJSON() string { return r.JSON.raw }
+func (r *App) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type AppListResponse struct {
-	Count      AppListResponseCount  `json:"count" api:"required"`
-	Items      []AppListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination     `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Count       respjson.Field
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
+type AppPlatform string
 
-// Returns the unmodified JSON received from the API
-func (r AppListResponse) RawJSON() string { return r.JSON.raw }
-func (r *AppListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
+const (
+	AppPlatformAndroid AppPlatform = "android"
+	AppPlatformIos     AppPlatform = "ios"
+)
 
-type AppListResponseCount struct {
-	AvailableCount float64 `json:"availableCount" api:"required"`
-	FailedCount    float64 `json:"failedCount" api:"required"`
-	QueuedCount    float64 `json:"queuedCount" api:"required"`
-	TotalCount     float64 `json:"totalCount" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		AvailableCount respjson.Field
-		FailedCount    respjson.Field
-		QueuedCount    respjson.Field
-		TotalCount     respjson.Field
-		ExtraFields    map[string]respjson.Field
-		raw            string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AppListResponseCount) RawJSON() string { return r.JSON.raw }
-func (r *AppListResponseCount) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AppListResponseItem struct {
-	ID            string    `json:"id" api:"required" format:"uuid"`
-	AppStoreID    int64     `json:"appStoreId" api:"required"`
-	BundleID      string    `json:"bundleId" api:"required"`
-	CreatedAt     time.Time `json:"createdAt" api:"required" format:"date-time"`
-	Description   string    `json:"description" api:"required"`
-	DeveloperName string    `json:"developerName" api:"required"`
-	DisplayName   string    `json:"displayName" api:"required"`
-	IconURL       string    `json:"iconURL" api:"required"`
-	// Any of "android", "ios".
-	Platform  string                     `json:"platform" api:"required"`
-	UpdatedAt time.Time                  `json:"updatedAt" api:"required" format:"date-time"`
-	Version   AppListResponseItemVersion `json:"version" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID            respjson.Field
-		AppStoreID    respjson.Field
-		BundleID      respjson.Field
-		CreatedAt     respjson.Field
-		Description   respjson.Field
-		DeveloperName respjson.Field
-		DisplayName   respjson.Field
-		IconURL       respjson.Field
-		Platform      respjson.Field
-		UpdatedAt     respjson.Field
-		Version       respjson.Field
-		ExtraFields   map[string]respjson.Field
-		raw           string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AppListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *AppListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AppListResponseItemVersion struct {
+type PublicAppVersion struct {
 	ID    string `json:"id" api:"required" format:"uuid"`
 	AppID string `json:"appId" api:"required" format:"uuid"`
 	// Any of "AF", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW",
@@ -295,18 +222,18 @@ type AppListResponseItemVersion struct {
 	// "TJ", "TZ", "TH", "TL", "TG", "TK", "TO", "TT", "TN", "TR", "TM", "TC", "TV",
 	// "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU", "VE", "VN", "VG", "VI",
 	// "WF", "EH", "YE", "ZM", "ZW", "AX".
-	Country   string    `json:"country" api:"required"`
-	CreatedAt time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy string    `json:"createdBy" api:"required"`
-	OwnerID   string    `json:"ownerId" api:"required"`
-	QueuedAt  time.Time `json:"queuedAt" api:"required" format:"date-time"`
-	SizeBytes int64     `json:"sizeBytes" api:"required"`
+	Country   PublicAppVersionCountry `json:"country" api:"required"`
+	CreatedAt time.Time               `json:"createdAt" api:"required" format:"date-time"`
+	CreatedBy string                  `json:"createdBy" api:"required"`
+	OwnerID   string                  `json:"ownerId" api:"required"`
+	QueuedAt  time.Time               `json:"queuedAt" api:"required" format:"date-time"`
+	SizeBytes int64                   `json:"sizeBytes" api:"required"`
 	// Any of "user", "system", "portal", "store".
-	Source string `json:"source" api:"required"`
+	Source PublicAppVersionSource `json:"source" api:"required"`
 	// Any of "queued", "available", "failed", "pruned".
-	Status    string    `json:"status" api:"required"`
-	TargetSDK int64     `json:"targetSdk" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
+	Status    PublicAppVersionStatus `json:"status" api:"required"`
+	TargetSDK int64                  `json:"targetSdk" api:"required"`
+	UpdatedAt time.Time              `json:"updatedAt" api:"required" format:"date-time"`
 	// Deprecated: use ownerId (tenancy) / createdBy (actor).
 	//
 	// Deprecated: deprecated
@@ -336,10 +263,345 @@ type AppListResponseItemVersion struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r AppListResponseItemVersion) RawJSON() string { return r.JSON.raw }
-func (r *AppListResponseItemVersion) UnmarshalJSON(data []byte) error {
+func (r PublicAppVersion) RawJSON() string { return r.JSON.raw }
+func (r *PublicAppVersion) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type PublicAppVersionCountry string
+
+const (
+	PublicAppVersionCountryAf PublicAppVersionCountry = "AF"
+	PublicAppVersionCountryAl PublicAppVersionCountry = "AL"
+	PublicAppVersionCountryDz PublicAppVersionCountry = "DZ"
+	PublicAppVersionCountryAs PublicAppVersionCountry = "AS"
+	PublicAppVersionCountryAd PublicAppVersionCountry = "AD"
+	PublicAppVersionCountryAo PublicAppVersionCountry = "AO"
+	PublicAppVersionCountryAI PublicAppVersionCountry = "AI"
+	PublicAppVersionCountryAq PublicAppVersionCountry = "AQ"
+	PublicAppVersionCountryAg PublicAppVersionCountry = "AG"
+	PublicAppVersionCountryAr PublicAppVersionCountry = "AR"
+	PublicAppVersionCountryAm PublicAppVersionCountry = "AM"
+	PublicAppVersionCountryAw PublicAppVersionCountry = "AW"
+	PublicAppVersionCountryAp PublicAppVersionCountry = "AP"
+	PublicAppVersionCountryAu PublicAppVersionCountry = "AU"
+	PublicAppVersionCountryAt PublicAppVersionCountry = "AT"
+	PublicAppVersionCountryAz PublicAppVersionCountry = "AZ"
+	PublicAppVersionCountryBs PublicAppVersionCountry = "BS"
+	PublicAppVersionCountryBh PublicAppVersionCountry = "BH"
+	PublicAppVersionCountryBd PublicAppVersionCountry = "BD"
+	PublicAppVersionCountryBb PublicAppVersionCountry = "BB"
+	PublicAppVersionCountryBy PublicAppVersionCountry = "BY"
+	PublicAppVersionCountryBe PublicAppVersionCountry = "BE"
+	PublicAppVersionCountryBz PublicAppVersionCountry = "BZ"
+	PublicAppVersionCountryBj PublicAppVersionCountry = "BJ"
+	PublicAppVersionCountryBm PublicAppVersionCountry = "BM"
+	PublicAppVersionCountryBt PublicAppVersionCountry = "BT"
+	PublicAppVersionCountryBo PublicAppVersionCountry = "BO"
+	PublicAppVersionCountryBq PublicAppVersionCountry = "BQ"
+	PublicAppVersionCountryBa PublicAppVersionCountry = "BA"
+	PublicAppVersionCountryBw PublicAppVersionCountry = "BW"
+	PublicAppVersionCountryBv PublicAppVersionCountry = "BV"
+	PublicAppVersionCountryBr PublicAppVersionCountry = "BR"
+	PublicAppVersionCountryIo PublicAppVersionCountry = "IO"
+	PublicAppVersionCountryBn PublicAppVersionCountry = "BN"
+	PublicAppVersionCountryBg PublicAppVersionCountry = "BG"
+	PublicAppVersionCountryBf PublicAppVersionCountry = "BF"
+	PublicAppVersionCountryBi PublicAppVersionCountry = "BI"
+	PublicAppVersionCountryKh PublicAppVersionCountry = "KH"
+	PublicAppVersionCountryCm PublicAppVersionCountry = "CM"
+	PublicAppVersionCountryCa PublicAppVersionCountry = "CA"
+	PublicAppVersionCountryCv PublicAppVersionCountry = "CV"
+	PublicAppVersionCountryKy PublicAppVersionCountry = "KY"
+	PublicAppVersionCountryCf PublicAppVersionCountry = "CF"
+	PublicAppVersionCountryTd PublicAppVersionCountry = "TD"
+	PublicAppVersionCountryCl PublicAppVersionCountry = "CL"
+	PublicAppVersionCountryCn PublicAppVersionCountry = "CN"
+	PublicAppVersionCountryCx PublicAppVersionCountry = "CX"
+	PublicAppVersionCountryCc PublicAppVersionCountry = "CC"
+	PublicAppVersionCountryCo PublicAppVersionCountry = "CO"
+	PublicAppVersionCountryKm PublicAppVersionCountry = "KM"
+	PublicAppVersionCountryCg PublicAppVersionCountry = "CG"
+	PublicAppVersionCountryCd PublicAppVersionCountry = "CD"
+	PublicAppVersionCountryCk PublicAppVersionCountry = "CK"
+	PublicAppVersionCountryCr PublicAppVersionCountry = "CR"
+	PublicAppVersionCountryHr PublicAppVersionCountry = "HR"
+	PublicAppVersionCountryCu PublicAppVersionCountry = "CU"
+	PublicAppVersionCountryCw PublicAppVersionCountry = "CW"
+	PublicAppVersionCountryCy PublicAppVersionCountry = "CY"
+	PublicAppVersionCountryCz PublicAppVersionCountry = "CZ"
+	PublicAppVersionCountryCi PublicAppVersionCountry = "CI"
+	PublicAppVersionCountryDk PublicAppVersionCountry = "DK"
+	PublicAppVersionCountryDj PublicAppVersionCountry = "DJ"
+	PublicAppVersionCountryDm PublicAppVersionCountry = "DM"
+	PublicAppVersionCountryDo PublicAppVersionCountry = "DO"
+	PublicAppVersionCountryEc PublicAppVersionCountry = "EC"
+	PublicAppVersionCountryEg PublicAppVersionCountry = "EG"
+	PublicAppVersionCountrySv PublicAppVersionCountry = "SV"
+	PublicAppVersionCountryGq PublicAppVersionCountry = "GQ"
+	PublicAppVersionCountryEr PublicAppVersionCountry = "ER"
+	PublicAppVersionCountryEe PublicAppVersionCountry = "EE"
+	PublicAppVersionCountryEt PublicAppVersionCountry = "ET"
+	PublicAppVersionCountryFk PublicAppVersionCountry = "FK"
+	PublicAppVersionCountryFo PublicAppVersionCountry = "FO"
+	PublicAppVersionCountryFj PublicAppVersionCountry = "FJ"
+	PublicAppVersionCountryFi PublicAppVersionCountry = "FI"
+	PublicAppVersionCountryFr PublicAppVersionCountry = "FR"
+	PublicAppVersionCountryGf PublicAppVersionCountry = "GF"
+	PublicAppVersionCountryPf PublicAppVersionCountry = "PF"
+	PublicAppVersionCountryTf PublicAppVersionCountry = "TF"
+	PublicAppVersionCountryGa PublicAppVersionCountry = "GA"
+	PublicAppVersionCountryGm PublicAppVersionCountry = "GM"
+	PublicAppVersionCountryGe PublicAppVersionCountry = "GE"
+	PublicAppVersionCountryDe PublicAppVersionCountry = "DE"
+	PublicAppVersionCountryGh PublicAppVersionCountry = "GH"
+	PublicAppVersionCountryGi PublicAppVersionCountry = "GI"
+	PublicAppVersionCountryGr PublicAppVersionCountry = "GR"
+	PublicAppVersionCountryGl PublicAppVersionCountry = "GL"
+	PublicAppVersionCountryGd PublicAppVersionCountry = "GD"
+	PublicAppVersionCountryGp PublicAppVersionCountry = "GP"
+	PublicAppVersionCountryGu PublicAppVersionCountry = "GU"
+	PublicAppVersionCountryGt PublicAppVersionCountry = "GT"
+	PublicAppVersionCountryGg PublicAppVersionCountry = "GG"
+	PublicAppVersionCountryGn PublicAppVersionCountry = "GN"
+	PublicAppVersionCountryGw PublicAppVersionCountry = "GW"
+	PublicAppVersionCountryGy PublicAppVersionCountry = "GY"
+	PublicAppVersionCountryHt PublicAppVersionCountry = "HT"
+	PublicAppVersionCountryHm PublicAppVersionCountry = "HM"
+	PublicAppVersionCountryVa PublicAppVersionCountry = "VA"
+	PublicAppVersionCountryHn PublicAppVersionCountry = "HN"
+	PublicAppVersionCountryHk PublicAppVersionCountry = "HK"
+	PublicAppVersionCountryHu PublicAppVersionCountry = "HU"
+	PublicAppVersionCountryIs PublicAppVersionCountry = "IS"
+	PublicAppVersionCountryIn PublicAppVersionCountry = "IN"
+	PublicAppVersionCountryID PublicAppVersionCountry = "ID"
+	PublicAppVersionCountryIr PublicAppVersionCountry = "IR"
+	PublicAppVersionCountryIq PublicAppVersionCountry = "IQ"
+	PublicAppVersionCountryIe PublicAppVersionCountry = "IE"
+	PublicAppVersionCountryIm PublicAppVersionCountry = "IM"
+	PublicAppVersionCountryIl PublicAppVersionCountry = "IL"
+	PublicAppVersionCountryIt PublicAppVersionCountry = "IT"
+	PublicAppVersionCountryJm PublicAppVersionCountry = "JM"
+	PublicAppVersionCountryJp PublicAppVersionCountry = "JP"
+	PublicAppVersionCountryJe PublicAppVersionCountry = "JE"
+	PublicAppVersionCountryJo PublicAppVersionCountry = "JO"
+	PublicAppVersionCountryKz PublicAppVersionCountry = "KZ"
+	PublicAppVersionCountryKe PublicAppVersionCountry = "KE"
+	PublicAppVersionCountryKi PublicAppVersionCountry = "KI"
+	PublicAppVersionCountryKr PublicAppVersionCountry = "KR"
+	PublicAppVersionCountryKw PublicAppVersionCountry = "KW"
+	PublicAppVersionCountryKg PublicAppVersionCountry = "KG"
+	PublicAppVersionCountryLa PublicAppVersionCountry = "LA"
+	PublicAppVersionCountryLv PublicAppVersionCountry = "LV"
+	PublicAppVersionCountryLb PublicAppVersionCountry = "LB"
+	PublicAppVersionCountryLs PublicAppVersionCountry = "LS"
+	PublicAppVersionCountryLr PublicAppVersionCountry = "LR"
+	PublicAppVersionCountryLy PublicAppVersionCountry = "LY"
+	PublicAppVersionCountryLi PublicAppVersionCountry = "LI"
+	PublicAppVersionCountryLt PublicAppVersionCountry = "LT"
+	PublicAppVersionCountryLu PublicAppVersionCountry = "LU"
+	PublicAppVersionCountryMo PublicAppVersionCountry = "MO"
+	PublicAppVersionCountryMg PublicAppVersionCountry = "MG"
+	PublicAppVersionCountryMw PublicAppVersionCountry = "MW"
+	PublicAppVersionCountryMy PublicAppVersionCountry = "MY"
+	PublicAppVersionCountryMv PublicAppVersionCountry = "MV"
+	PublicAppVersionCountryMl PublicAppVersionCountry = "ML"
+	PublicAppVersionCountryMt PublicAppVersionCountry = "MT"
+	PublicAppVersionCountryMh PublicAppVersionCountry = "MH"
+	PublicAppVersionCountryMq PublicAppVersionCountry = "MQ"
+	PublicAppVersionCountryMr PublicAppVersionCountry = "MR"
+	PublicAppVersionCountryMu PublicAppVersionCountry = "MU"
+	PublicAppVersionCountryYt PublicAppVersionCountry = "YT"
+	PublicAppVersionCountryMx PublicAppVersionCountry = "MX"
+	PublicAppVersionCountryFm PublicAppVersionCountry = "FM"
+	PublicAppVersionCountryMd PublicAppVersionCountry = "MD"
+	PublicAppVersionCountryMc PublicAppVersionCountry = "MC"
+	PublicAppVersionCountryMn PublicAppVersionCountry = "MN"
+	PublicAppVersionCountryMe PublicAppVersionCountry = "ME"
+	PublicAppVersionCountryMs PublicAppVersionCountry = "MS"
+	PublicAppVersionCountryMa PublicAppVersionCountry = "MA"
+	PublicAppVersionCountryMz PublicAppVersionCountry = "MZ"
+	PublicAppVersionCountryMm PublicAppVersionCountry = "MM"
+	PublicAppVersionCountryNa PublicAppVersionCountry = "NA"
+	PublicAppVersionCountryNr PublicAppVersionCountry = "NR"
+	PublicAppVersionCountryNp PublicAppVersionCountry = "NP"
+	PublicAppVersionCountryNl PublicAppVersionCountry = "NL"
+	PublicAppVersionCountryAn PublicAppVersionCountry = "AN"
+	PublicAppVersionCountryNc PublicAppVersionCountry = "NC"
+	PublicAppVersionCountryNz PublicAppVersionCountry = "NZ"
+	PublicAppVersionCountryNi PublicAppVersionCountry = "NI"
+	PublicAppVersionCountryNe PublicAppVersionCountry = "NE"
+	PublicAppVersionCountryNg PublicAppVersionCountry = "NG"
+	PublicAppVersionCountryNu PublicAppVersionCountry = "NU"
+	PublicAppVersionCountryNf PublicAppVersionCountry = "NF"
+	PublicAppVersionCountryKp PublicAppVersionCountry = "KP"
+	PublicAppVersionCountryMk PublicAppVersionCountry = "MK"
+	PublicAppVersionCountryMp PublicAppVersionCountry = "MP"
+	PublicAppVersionCountryNo PublicAppVersionCountry = "NO"
+	PublicAppVersionCountryOm PublicAppVersionCountry = "OM"
+	PublicAppVersionCountryPk PublicAppVersionCountry = "PK"
+	PublicAppVersionCountryPw PublicAppVersionCountry = "PW"
+	PublicAppVersionCountryPs PublicAppVersionCountry = "PS"
+	PublicAppVersionCountryPa PublicAppVersionCountry = "PA"
+	PublicAppVersionCountryPg PublicAppVersionCountry = "PG"
+	PublicAppVersionCountryPy PublicAppVersionCountry = "PY"
+	PublicAppVersionCountryPe PublicAppVersionCountry = "PE"
+	PublicAppVersionCountryPh PublicAppVersionCountry = "PH"
+	PublicAppVersionCountryPn PublicAppVersionCountry = "PN"
+	PublicAppVersionCountryPl PublicAppVersionCountry = "PL"
+	PublicAppVersionCountryPt PublicAppVersionCountry = "PT"
+	PublicAppVersionCountryPr PublicAppVersionCountry = "PR"
+	PublicAppVersionCountryQa PublicAppVersionCountry = "QA"
+	PublicAppVersionCountryRe PublicAppVersionCountry = "RE"
+	PublicAppVersionCountryRo PublicAppVersionCountry = "RO"
+	PublicAppVersionCountryRu PublicAppVersionCountry = "RU"
+	PublicAppVersionCountryRw PublicAppVersionCountry = "RW"
+	PublicAppVersionCountryBl PublicAppVersionCountry = "BL"
+	PublicAppVersionCountrySh PublicAppVersionCountry = "SH"
+	PublicAppVersionCountryKn PublicAppVersionCountry = "KN"
+	PublicAppVersionCountryLc PublicAppVersionCountry = "LC"
+	PublicAppVersionCountryMf PublicAppVersionCountry = "MF"
+	PublicAppVersionCountryPm PublicAppVersionCountry = "PM"
+	PublicAppVersionCountryVc PublicAppVersionCountry = "VC"
+	PublicAppVersionCountryWs PublicAppVersionCountry = "WS"
+	PublicAppVersionCountrySm PublicAppVersionCountry = "SM"
+	PublicAppVersionCountrySt PublicAppVersionCountry = "ST"
+	PublicAppVersionCountrySa PublicAppVersionCountry = "SA"
+	PublicAppVersionCountrySn PublicAppVersionCountry = "SN"
+	PublicAppVersionCountryRs PublicAppVersionCountry = "RS"
+	PublicAppVersionCountryCs PublicAppVersionCountry = "CS"
+	PublicAppVersionCountrySc PublicAppVersionCountry = "SC"
+	PublicAppVersionCountrySl PublicAppVersionCountry = "SL"
+	PublicAppVersionCountrySg PublicAppVersionCountry = "SG"
+	PublicAppVersionCountrySx PublicAppVersionCountry = "SX"
+	PublicAppVersionCountrySk PublicAppVersionCountry = "SK"
+	PublicAppVersionCountrySi PublicAppVersionCountry = "SI"
+	PublicAppVersionCountrySb PublicAppVersionCountry = "SB"
+	PublicAppVersionCountrySo PublicAppVersionCountry = "SO"
+	PublicAppVersionCountryZa PublicAppVersionCountry = "ZA"
+	PublicAppVersionCountryGs PublicAppVersionCountry = "GS"
+	PublicAppVersionCountrySS PublicAppVersionCountry = "SS"
+	PublicAppVersionCountryEs PublicAppVersionCountry = "ES"
+	PublicAppVersionCountryLk PublicAppVersionCountry = "LK"
+	PublicAppVersionCountrySd PublicAppVersionCountry = "SD"
+	PublicAppVersionCountrySr PublicAppVersionCountry = "SR"
+	PublicAppVersionCountrySj PublicAppVersionCountry = "SJ"
+	PublicAppVersionCountrySz PublicAppVersionCountry = "SZ"
+	PublicAppVersionCountrySe PublicAppVersionCountry = "SE"
+	PublicAppVersionCountryCh PublicAppVersionCountry = "CH"
+	PublicAppVersionCountrySy PublicAppVersionCountry = "SY"
+	PublicAppVersionCountryTw PublicAppVersionCountry = "TW"
+	PublicAppVersionCountryTj PublicAppVersionCountry = "TJ"
+	PublicAppVersionCountryTz PublicAppVersionCountry = "TZ"
+	PublicAppVersionCountryTh PublicAppVersionCountry = "TH"
+	PublicAppVersionCountryTl PublicAppVersionCountry = "TL"
+	PublicAppVersionCountryTg PublicAppVersionCountry = "TG"
+	PublicAppVersionCountryTk PublicAppVersionCountry = "TK"
+	PublicAppVersionCountryTo PublicAppVersionCountry = "TO"
+	PublicAppVersionCountryTt PublicAppVersionCountry = "TT"
+	PublicAppVersionCountryTn PublicAppVersionCountry = "TN"
+	PublicAppVersionCountryTr PublicAppVersionCountry = "TR"
+	PublicAppVersionCountryTm PublicAppVersionCountry = "TM"
+	PublicAppVersionCountryTc PublicAppVersionCountry = "TC"
+	PublicAppVersionCountryTv PublicAppVersionCountry = "TV"
+	PublicAppVersionCountryUg PublicAppVersionCountry = "UG"
+	PublicAppVersionCountryUa PublicAppVersionCountry = "UA"
+	PublicAppVersionCountryAe PublicAppVersionCountry = "AE"
+	PublicAppVersionCountryGB PublicAppVersionCountry = "GB"
+	PublicAppVersionCountryUs PublicAppVersionCountry = "US"
+	PublicAppVersionCountryUm PublicAppVersionCountry = "UM"
+	PublicAppVersionCountryUy PublicAppVersionCountry = "UY"
+	PublicAppVersionCountryUz PublicAppVersionCountry = "UZ"
+	PublicAppVersionCountryVu PublicAppVersionCountry = "VU"
+	PublicAppVersionCountryVe PublicAppVersionCountry = "VE"
+	PublicAppVersionCountryVn PublicAppVersionCountry = "VN"
+	PublicAppVersionCountryVg PublicAppVersionCountry = "VG"
+	PublicAppVersionCountryVi PublicAppVersionCountry = "VI"
+	PublicAppVersionCountryWf PublicAppVersionCountry = "WF"
+	PublicAppVersionCountryEh PublicAppVersionCountry = "EH"
+	PublicAppVersionCountryYe PublicAppVersionCountry = "YE"
+	PublicAppVersionCountryZm PublicAppVersionCountry = "ZM"
+	PublicAppVersionCountryZw PublicAppVersionCountry = "ZW"
+	PublicAppVersionCountryAx PublicAppVersionCountry = "AX"
+)
+
+type PublicAppVersionSource string
+
+const (
+	PublicAppVersionSourceUser   PublicAppVersionSource = "user"
+	PublicAppVersionSourceSystem PublicAppVersionSource = "system"
+	PublicAppVersionSourcePortal PublicAppVersionSource = "portal"
+	PublicAppVersionSourceStore  PublicAppVersionSource = "store"
+)
+
+type PublicAppVersionStatus string
+
+const (
+	PublicAppVersionStatusQueued    PublicAppVersionStatus = "queued"
+	PublicAppVersionStatusAvailable PublicAppVersionStatus = "available"
+	PublicAppVersionStatusFailed    PublicAppVersionStatus = "failed"
+	PublicAppVersionStatusPruned    PublicAppVersionStatus = "pruned"
+)
+
+type AppGetResponse struct {
+	Data App `json:"data" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Data        respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AppGetResponse) RawJSON() string { return r.JSON.raw }
+func (r *AppGetResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type AppListResponse struct {
+	ID            string    `json:"id" api:"required" format:"uuid"`
+	AppStoreID    int64     `json:"appStoreId" api:"required"`
+	BundleID      string    `json:"bundleId" api:"required"`
+	CreatedAt     time.Time `json:"createdAt" api:"required" format:"date-time"`
+	Description   string    `json:"description" api:"required"`
+	DeveloperName string    `json:"developerName" api:"required"`
+	DisplayName   string    `json:"displayName" api:"required"`
+	IconURL       string    `json:"iconURL" api:"required"`
+	// Any of "android", "ios".
+	Platform  AppListResponsePlatform `json:"platform" api:"required"`
+	UpdatedAt time.Time               `json:"updatedAt" api:"required" format:"date-time"`
+	Version   PublicAppVersion        `json:"version" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		ID            respjson.Field
+		AppStoreID    respjson.Field
+		BundleID      respjson.Field
+		CreatedAt     respjson.Field
+		Description   respjson.Field
+		DeveloperName respjson.Field
+		DisplayName   respjson.Field
+		IconURL       respjson.Field
+		Platform      respjson.Field
+		UpdatedAt     respjson.Field
+		Version       respjson.Field
+		ExtraFields   map[string]respjson.Field
+		raw           string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r AppListResponse) RawJSON() string { return r.JSON.raw }
+func (r *AppListResponse) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type AppListResponsePlatform string
+
+const (
+	AppListResponsePlatformAndroid AppListResponsePlatform = "android"
+	AppListResponsePlatformIos     AppListResponsePlatform = "ios"
+)
 
 type AppDeleteResponse struct {
 	Message string `json:"message" api:"required"`
@@ -421,7 +683,7 @@ func (r *AppNewSignedUploadURLResponseR2UploadURL) UnmarshalJSON(data []byte) er
 }
 
 type AppListVersionsResponse struct {
-	Data []AppListVersionsResponseData `json:"data" api:"required"`
+	Data []PublicAppVersion `json:"data" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Data        respjson.Field
@@ -433,75 +695,6 @@ type AppListVersionsResponse struct {
 // Returns the unmodified JSON received from the API
 func (r AppListVersionsResponse) RawJSON() string { return r.JSON.raw }
 func (r *AppListVersionsResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type AppListVersionsResponseData struct {
-	ID    string `json:"id" api:"required" format:"uuid"`
-	AppID string `json:"appId" api:"required" format:"uuid"`
-	// Any of "AF", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW",
-	// "AP", "AU", "AT", "AZ", "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM",
-	// "BT", "BO", "BQ", "BA", "BW", "BV", "BR", "IO", "BN", "BG", "BF", "BI", "KH",
-	// "CM", "CA", "CV", "KY", "CF", "TD", "CL", "CN", "CX", "CC", "CO", "KM", "CG",
-	// "CD", "CK", "CR", "HR", "CU", "CW", "CY", "CZ", "CI", "DK", "DJ", "DM", "DO",
-	// "EC", "EG", "SV", "GQ", "ER", "EE", "ET", "FK", "FO", "FJ", "FI", "FR", "GF",
-	// "PF", "TF", "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU",
-	// "GT", "GG", "GN", "GW", "GY", "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN",
-	// "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM", "JP", "JE", "JO", "KZ", "KE",
-	// "KI", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY", "LI", "LT", "LU",
-	// "MO", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT", "MX",
-	// "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL",
-	// "AN", "NC", "NZ", "NI", "NE", "NG", "NU", "NF", "KP", "MK", "MP", "NO", "OM",
-	// "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH", "PN", "PL", "PT", "PR", "QA",
-	// "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC", "WS", "SM",
-	// "ST", "SA", "SN", "RS", "CS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO",
-	// "ZA", "GS", "SS", "ES", "LK", "SD", "SR", "SJ", "SZ", "SE", "CH", "SY", "TW",
-	// "TJ", "TZ", "TH", "TL", "TG", "TK", "TO", "TT", "TN", "TR", "TM", "TC", "TV",
-	// "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU", "VE", "VN", "VG", "VI",
-	// "WF", "EH", "YE", "ZM", "ZW", "AX".
-	Country   string    `json:"country" api:"required"`
-	CreatedAt time.Time `json:"createdAt" api:"required" format:"date-time"`
-	CreatedBy string    `json:"createdBy" api:"required"`
-	OwnerID   string    `json:"ownerId" api:"required"`
-	QueuedAt  time.Time `json:"queuedAt" api:"required" format:"date-time"`
-	SizeBytes int64     `json:"sizeBytes" api:"required"`
-	// Any of "user", "system", "portal", "store".
-	Source string `json:"source" api:"required"`
-	// Any of "queued", "available", "failed", "pruned".
-	Status    string    `json:"status" api:"required"`
-	TargetSDK int64     `json:"targetSdk" api:"required"`
-	UpdatedAt time.Time `json:"updatedAt" api:"required" format:"date-time"`
-	// Deprecated: use ownerId (tenancy) / createdBy (actor).
-	//
-	// Deprecated: deprecated
-	UserID      string `json:"userId" api:"required"`
-	VersionCode int64  `json:"versionCode" api:"required"`
-	VersionName string `json:"versionName" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID          respjson.Field
-		AppID       respjson.Field
-		Country     respjson.Field
-		CreatedAt   respjson.Field
-		CreatedBy   respjson.Field
-		OwnerID     respjson.Field
-		QueuedAt    respjson.Field
-		SizeBytes   respjson.Field
-		Source      respjson.Field
-		Status      respjson.Field
-		TargetSDK   respjson.Field
-		UpdatedAt   respjson.Field
-		UserID      respjson.Field
-		VersionCode respjson.Field
-		VersionName respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r AppListVersionsResponseData) RawJSON() string { return r.JSON.raw }
-func (r *AppListVersionsResponseData) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
