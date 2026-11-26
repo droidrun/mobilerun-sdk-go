@@ -38,8 +38,8 @@ func TestComputeFunctionVersionNewWithOptionalParams(t *testing.T) {
 					},
 				},
 			},
-			Manifest: mobilerun.ComputeFunctionVersionNewParamsManifest{
-				Credentials: []mobilerun.ComputeFunctionVersionNewParamsManifestCredential{{
+			Manifest: mobilerun.FunctionManifestParam{
+				Credentials: []mobilerun.FunctionManifestCredentialParam{{
 					Name:        "x",
 					PackageName: "x",
 				}},

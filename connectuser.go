@@ -15,6 +15,7 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
 )
@@ -75,11 +76,26 @@ func (r *ConnectUserService) Update(ctx context.Context, id string, body Connect
 }
 
 // Returns SOCKS5 users owned by the caller. Passwords are omitted from the list.
-func (r *ConnectUserService) List(ctx context.Context, query ConnectUserListParams, opts ...option.RequestOption) (res *ConnectUserListResponse, err error) {
+func (r *ConnectUserService) List(ctx context.Context, query ConnectUserListParams, opts ...option.RequestOption) (res *pagination.Page[ConnectUserListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	path := "connect/users"
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns SOCKS5 users owned by the caller. Passwords are omitted from the list.
+func (r *ConnectUserService) ListAutoPaging(ctx context.Context, query ConnectUserListParams, opts ...option.RequestOption) *pagination.PageAutoPager[ConnectUserListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, query, opts...))
 }
 
 // Deletes the SOCKS5 user identified by the path ID, revoking its credentials and
@@ -100,15 +116,33 @@ func (r *ConnectUserService) Delete(ctx context.Context, id string, opts ...opti
 // (aggregated across the connection's lifetime). Supports filtering on every
 // property plus ordering and pagination. Returns 503 when connection history is
 // temporarily unavailable.
-func (r *ConnectUserService) ListConnections(ctx context.Context, id string, query ConnectUserListConnectionsParams, opts ...option.RequestOption) (res *ConnectUserListConnectionsResponse, err error) {
+func (r *ConnectUserService) ListConnections(ctx context.Context, id string, query ConnectUserListConnectionsParams, opts ...option.RequestOption) (res *pagination.Page[Connection], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if id == "" {
 		err = errors.New("missing required id parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("connect/users/%s/connections", id)
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns the connection history recorded for this user, one item per connection
+// (aggregated across the connection's lifetime). Supports filtering on every
+// property plus ordering and pagination. Returns 503 when connection history is
+// temporarily unavailable.
+func (r *ConnectUserService) ListConnectionsAutoPaging(ctx context.Context, id string, query ConnectUserListConnectionsParams, opts ...option.RequestOption) *pagination.PageAutoPager[Connection] {
+	return pagination.NewPageAutoPager(r.ListConnections(ctx, id, query, opts...))
 }
 
 // A SOCKS5 user including its password. Returned only on create and single-user
@@ -189,28 +223,8 @@ func (r *ConnectUserUpdateResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-// A page of SOCKS5 users.
-type ConnectUserListResponse struct {
-	Items []ConnectUserListResponseItem `json:"items" api:"required"`
-	// Pagination metadata for a list response.
-	Pagination ConnectUserListResponsePagination `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectUserListResponse) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
 // A SOCKS5 credential without its password.
-type ConnectUserListResponseItem struct {
+type ConnectUserListResponse struct {
 	ID        string    `json:"id" api:"required" format:"uuid"`
 	CreatedAt time.Time `json:"createdAt" api:"required" format:"date-time"`
 	Username  string    `json:"username" api:"required"`
@@ -228,167 +242,8 @@ type ConnectUserListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ConnectUserListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Pagination metadata for a list response.
-type ConnectUserListResponsePagination struct {
-	// Whether a next page exists.
-	HasNext bool `json:"hasNext" api:"required"`
-	// Whether a previous page exists.
-	HasPrev bool `json:"hasPrev" api:"required"`
-	// Current page number (1-based).
-	Page int64 `json:"page" api:"required"`
-	// Total number of pages.
-	Pages int64 `json:"pages" api:"required"`
-	// Number of items per page.
-	PageSize int64 `json:"pageSize" api:"required"`
-	// Total number of items across all pages.
-	Total int64 `json:"total" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		HasNext     respjson.Field
-		HasPrev     respjson.Field
-		Page        respjson.Field
-		Pages       respjson.Field
-		PageSize    respjson.Field
-		Total       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectUserListResponsePagination) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListResponsePagination) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A page of connections.
-type ConnectUserListConnectionsResponse struct {
-	Items []ConnectUserListConnectionsResponseItem `json:"items" api:"required"`
-	// Pagination metadata for a list response.
-	Pagination ConnectUserListConnectionsResponsePagination `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectUserListConnectionsResponse) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListConnectionsResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// A single proxy connection, aggregated across its lifetime. Byte counts are
-// totals for the whole connection.
-type ConnectUserListConnectionsResponseItem struct {
-	// Total bytes received from upstream over the connection's lifetime.
-	BytesIn int64 `json:"bytesIn" api:"required"`
-	// Total bytes sent to upstream over the connection's lifetime.
-	BytesOut int64 `json:"bytesOut" api:"required"`
-	// Upstream country code (ISO 3166-1 alpha-2), or empty if unknown.
-	Country string `json:"country" api:"required"`
-	// Destination host the client connected to.
-	DstHost string `json:"dstHost" api:"required"`
-	// Destination port the client connected to.
-	DstPort int64 `json:"dstPort" api:"required"`
-	// Elapsed time between startedAt and endedAt, in milliseconds.
-	DurationMs int64 `json:"durationMs" api:"required"`
-	// Time of the connection's last recorded activity (close time once closed).
-	EndedAt time.Time `json:"endedAt" api:"required" format:"date-time"`
-	// Transport protocol of a connection.
-	//
-	// Any of "tcp", "udp", "unknown".
-	Protocol string `json:"protocol" api:"required"`
-	// Identifier of the upstream provider that served the connection.
-	Provider string `json:"provider" api:"required"`
-	// The proxy the connection was routed through. All-zero when the upstream was
-	// unresolved at capture time.
-	ProxyID string `json:"proxyId" api:"required" format:"uuid"`
-	// Unique id of this connection.
-	SessionID string `json:"sessionId" api:"required" format:"uuid"`
-	// Client source IP address.
-	SrcIP string `json:"srcIp" api:"required"`
-	// When the connection started.
-	StartedAt time.Time `json:"startedAt" api:"required" format:"date-time"`
-	// `active` while the connection is still open (no terminal record yet); `closed`
-	// once it has ended.
-	//
-	// Any of "active", "closed".
-	Status string `json:"status" api:"required"`
-	// bytesIn + bytesOut.
-	TotalBytes int64 `json:"totalBytes" api:"required"`
-	// The user that made the connection.
-	UserID string `json:"userId" api:"required" format:"uuid"`
-	// Why the connection closed; null while still active.
-	CloseReason string `json:"closeReason" api:"nullable"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		BytesIn     respjson.Field
-		BytesOut    respjson.Field
-		Country     respjson.Field
-		DstHost     respjson.Field
-		DstPort     respjson.Field
-		DurationMs  respjson.Field
-		EndedAt     respjson.Field
-		Protocol    respjson.Field
-		Provider    respjson.Field
-		ProxyID     respjson.Field
-		SessionID   respjson.Field
-		SrcIP       respjson.Field
-		StartedAt   respjson.Field
-		Status      respjson.Field
-		TotalBytes  respjson.Field
-		UserID      respjson.Field
-		CloseReason respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectUserListConnectionsResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListConnectionsResponseItem) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// Pagination metadata for a list response.
-type ConnectUserListConnectionsResponsePagination struct {
-	// Whether a next page exists.
-	HasNext bool `json:"hasNext" api:"required"`
-	// Whether a previous page exists.
-	HasPrev bool `json:"hasPrev" api:"required"`
-	// Current page number (1-based).
-	Page int64 `json:"page" api:"required"`
-	// Total number of pages.
-	Pages int64 `json:"pages" api:"required"`
-	// Number of items per page.
-	PageSize int64 `json:"pageSize" api:"required"`
-	// Total number of items across all pages.
-	Total int64 `json:"total" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		HasNext     respjson.Field
-		HasPrev     respjson.Field
-		Page        respjson.Field
-		Pages       respjson.Field
-		PageSize    respjson.Field
-		Total       respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ConnectUserListConnectionsResponsePagination) RawJSON() string { return r.JSON.raw }
-func (r *ConnectUserListConnectionsResponsePagination) UnmarshalJSON(data []byte) error {
+func (r ConnectUserListResponse) RawJSON() string { return r.JSON.raw }
+func (r *ConnectUserListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
