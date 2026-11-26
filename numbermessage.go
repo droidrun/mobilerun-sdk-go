@@ -15,9 +15,9 @@ import (
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/apiquery"
 	"github.com/droidrun/mobilerun-sdk-go/v6/internal/requestconfig"
 	"github.com/droidrun/mobilerun-sdk-go/v6/option"
+	"github.com/droidrun/mobilerun-sdk-go/v6/packages/pagination"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/param"
 	"github.com/droidrun/mobilerun-sdk-go/v6/packages/respjson"
-	"github.com/droidrun/mobilerun-sdk-go/v6/shared"
 )
 
 // NumberMessageService contains methods and other services that help with
@@ -42,15 +42,32 @@ func NewNumberMessageService(opts ...option.RequestOption) (r NumberMessageServi
 // Returns SMS messages on the number, inbound and outbound, scoped to the
 // authenticated user. Newest first. Messages stay with the number across device
 // switches.
-func (r *NumberMessageService) List(ctx context.Context, id string, query NumberMessageListParams, opts ...option.RequestOption) (res *NumberMessageListResponse, err error) {
+func (r *NumberMessageService) List(ctx context.Context, id string, query NumberMessageListParams, opts ...option.RequestOption) (res *pagination.Page[NumberMessageListResponse], err error) {
+	var raw *http.Response
 	opts = slices.Concat(r.options, opts)
+	opts = append([]option.RequestOption{option.WithResponseInto(&raw)}, opts...)
 	if id == "" {
 		err = errors.New("missing required id parameter")
 		return nil, err
 	}
 	path := fmt.Sprintf("numbers/phones/%s/messages", id)
-	err = requestconfig.ExecuteNewRequest(ctx, http.MethodGet, path, query, &res, opts...)
-	return res, err
+	cfg, err := requestconfig.NewRequestConfig(ctx, http.MethodGet, path, query, &res, opts...)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.Execute()
+	if err != nil {
+		return nil, err
+	}
+	res.SetPageConfig(cfg, raw)
+	return res, nil
+}
+
+// Returns SMS messages on the number, inbound and outbound, scoped to the
+// authenticated user. Newest first. Messages stay with the number across device
+// switches.
+func (r *NumberMessageService) ListAutoPaging(ctx context.Context, id string, query NumberMessageListParams, opts ...option.RequestOption) *pagination.PageAutoPager[NumberMessageListResponse] {
+	return pagination.NewPageAutoPager(r.List(ctx, id, query, opts...))
 }
 
 // Queues an SMS from one of the caller's numbers that can send. Replaying an
@@ -76,36 +93,18 @@ func (r *NumberMessageService) Send(ctx context.Context, id string, body NumberM
 }
 
 type NumberMessageListResponse struct {
-	Items      []NumberMessageListResponseItem `json:"items" api:"required"`
-	Pagination shared.Pagination               `json:"pagination" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Items       respjson.Field
-		Pagination  respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r NumberMessageListResponse) RawJSON() string { return r.JSON.raw }
-func (r *NumberMessageListResponse) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type NumberMessageListResponseItem struct {
-	ID             string                                      `json:"id" api:"required" format:"uuid"`
-	Body           string                                      `json:"body" api:"required"`
-	Classification NumberMessageListResponseItemClassification `json:"classification" api:"required"`
-	CreatedAt      time.Time                                   `json:"createdAt" api:"required" format:"date-time"`
-	DeliveryStatus string                                      `json:"deliveryStatus" api:"required"`
-	DetectedSender string                                      `json:"detectedSender" api:"required"`
+	ID             string                                  `json:"id" api:"required" format:"uuid"`
+	Body           string                                  `json:"body" api:"required"`
+	Classification NumberMessageListResponseClassification `json:"classification" api:"required"`
+	CreatedAt      time.Time                               `json:"createdAt" api:"required" format:"date-time"`
+	DeliveryStatus string                                  `json:"deliveryStatus" api:"required"`
+	DetectedSender string                                  `json:"detectedSender" api:"required"`
 	// Any of "inbound", "outbound".
-	Direction  string    `json:"direction" api:"required"`
-	EsimID     string    `json:"esimId" api:"required" format:"uuid"`
-	OccurredAt time.Time `json:"occurredAt" api:"required" format:"date-time"`
-	PeerKey    string    `json:"peerKey" api:"required"`
-	PeerNumber string    `json:"peerNumber" api:"required"`
+	Direction  NumberMessageListResponseDirection `json:"direction" api:"required"`
+	EsimID     string                             `json:"esimId" api:"required" format:"uuid"`
+	OccurredAt time.Time                          `json:"occurredAt" api:"required" format:"date-time"`
+	PeerKey    string                             `json:"peerKey" api:"required"`
+	PeerNumber string                             `json:"peerNumber" api:"required"`
 	// Message status. Outbound messages move queued → sending → sent, or end at
 	// failed. `sent` means the mobile network accepted the message and is the final
 	// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
@@ -113,7 +112,7 @@ type NumberMessageListResponseItem struct {
 	//
 	// Any of "received", "queued", "claimed", "sending", "sent", "sent_unconfirmed",
 	// "delivered", "failed".
-	Status string `json:"status" api:"required"`
+	Status NumberMessageListResponseStatus `json:"status" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		ID             respjson.Field
@@ -134,12 +133,12 @@ type NumberMessageListResponseItem struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r NumberMessageListResponseItem) RawJSON() string { return r.JSON.raw }
-func (r *NumberMessageListResponseItem) UnmarshalJSON(data []byte) error {
+func (r NumberMessageListResponse) RawJSON() string { return r.JSON.raw }
+func (r *NumberMessageListResponse) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type NumberMessageListResponseItemClassification struct {
+type NumberMessageListResponseClassification struct {
 	Spam bool `json:"spam" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
@@ -150,10 +149,34 @@ type NumberMessageListResponseItemClassification struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r NumberMessageListResponseItemClassification) RawJSON() string { return r.JSON.raw }
-func (r *NumberMessageListResponseItemClassification) UnmarshalJSON(data []byte) error {
+func (r NumberMessageListResponseClassification) RawJSON() string { return r.JSON.raw }
+func (r *NumberMessageListResponseClassification) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
+
+type NumberMessageListResponseDirection string
+
+const (
+	NumberMessageListResponseDirectionInbound  NumberMessageListResponseDirection = "inbound"
+	NumberMessageListResponseDirectionOutbound NumberMessageListResponseDirection = "outbound"
+)
+
+// Message status. Outbound messages move queued → sending → sent, or end at
+// failed. `sent` means the mobile network accepted the message and is the final
+// success status. `delivered` and `sent_unconfirmed` are kept for compatibility;
+// current lines return no carrier delivery report, so neither is emitted.
+type NumberMessageListResponseStatus string
+
+const (
+	NumberMessageListResponseStatusReceived        NumberMessageListResponseStatus = "received"
+	NumberMessageListResponseStatusQueued          NumberMessageListResponseStatus = "queued"
+	NumberMessageListResponseStatusClaimed         NumberMessageListResponseStatus = "claimed"
+	NumberMessageListResponseStatusSending         NumberMessageListResponseStatus = "sending"
+	NumberMessageListResponseStatusSent            NumberMessageListResponseStatus = "sent"
+	NumberMessageListResponseStatusSentUnconfirmed NumberMessageListResponseStatus = "sent_unconfirmed"
+	NumberMessageListResponseStatusDelivered       NumberMessageListResponseStatus = "delivered"
+	NumberMessageListResponseStatusFailed          NumberMessageListResponseStatus = "failed"
+)
 
 type NumberMessageSendResponse struct {
 	Data NumberMessageSendResponseData `json:"data" api:"required"`

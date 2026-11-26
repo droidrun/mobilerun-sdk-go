@@ -111,6 +111,83 @@ func (r *ComputeFunctionService) Source(ctx context.Context, functionID string, 
 	return res, err
 }
 
+type FunctionManifest struct {
+	Credentials []FunctionManifestCredential `json:"credentials"`
+	Hosts       []string                     `json:"hosts"`
+	Scopes      []string                     `json:"scopes"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Credentials respjson.Field
+		Hosts       respjson.Field
+		Scopes      respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r FunctionManifest) RawJSON() string { return r.JSON.raw }
+func (r *FunctionManifest) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// ToParam converts this FunctionManifest to a FunctionManifestParam.
+//
+// Warning: the fields of the param type will not be present. ToParam should only
+// be used at the last possible moment before sending a request. Test for this with
+// FunctionManifestParam.Overrides()
+func (r FunctionManifest) ToParam() FunctionManifestParam {
+	return param.Override[FunctionManifestParam](json.RawMessage(r.RawJSON()))
+}
+
+type FunctionManifestCredential struct {
+	Name        string `json:"name" api:"required"`
+	PackageName string `json:"packageName" api:"required"`
+	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
+	JSON struct {
+		Name        respjson.Field
+		PackageName respjson.Field
+		ExtraFields map[string]respjson.Field
+		raw         string
+	} `json:"-"`
+}
+
+// Returns the unmodified JSON received from the API
+func (r FunctionManifestCredential) RawJSON() string { return r.JSON.raw }
+func (r *FunctionManifestCredential) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+type FunctionManifestParam struct {
+	Credentials []FunctionManifestCredentialParam `json:"credentials,omitzero"`
+	Hosts       []string                          `json:"hosts,omitzero"`
+	Scopes      []string                          `json:"scopes,omitzero"`
+	paramObj
+}
+
+func (r FunctionManifestParam) MarshalJSON() (data []byte, err error) {
+	type shadow FunctionManifestParam
+	return param.MarshalObject(r, (*shadow)(&r))
+}
+func (r *FunctionManifestParam) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
+// The properties Name, PackageName are required.
+type FunctionManifestCredentialParam struct {
+	Name        string `json:"name" api:"required"`
+	PackageName string `json:"packageName" api:"required"`
+	paramObj
+}
+
+func (r FunctionManifestCredentialParam) MarshalJSON() (data []byte, err error) {
+	type shadow FunctionManifestCredentialParam
+	return param.MarshalObject(r, (*shadow)(&r))
+}
+func (r *FunctionManifestCredentialParam) UnmarshalJSON(data []byte) error {
+	return apijson.UnmarshalRoot(data, r)
+}
+
 type FunctionSource struct {
 	FunctionID string `json:"functionId" api:"required" format:"uuid"`
 	Sha256     string `json:"sha256" api:"required"`
@@ -133,51 +210,21 @@ func (r *FunctionSource) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunction struct {
-	ID                 string                          `json:"id" api:"required" format:"uuid"`
-	CreatedAt          time.Time                       `json:"createdAt" api:"required" format:"date-time"`
-	Description        string                          `json:"description" api:"required"`
-	LatestReadyVersion int64                           `json:"latestReadyVersion" api:"required"`
-	LatestVersion      ServerlessFunctionLatestVersion `json:"latestVersion" api:"required"`
-	Name               string                          `json:"name" api:"required"`
-	UpdatedAt          time.Time                       `json:"updatedAt" api:"required" format:"date-time"`
-	VersionCount       int64                           `json:"versionCount" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		ID                 respjson.Field
-		CreatedAt          respjson.Field
-		Description        respjson.Field
-		LatestReadyVersion respjson.Field
-		LatestVersion      respjson.Field
-		Name               respjson.Field
-		UpdatedAt          respjson.Field
-		VersionCount       respjson.Field
-		ExtraFields        map[string]respjson.Field
-		raw                string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ServerlessFunction) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunction) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ServerlessFunctionLatestVersion struct {
-	APIKey         ServerlessFunctionLatestVersionAPIKeyUnion  `json:"apiKey" api:"required"`
-	CreatedAt      time.Time                                   `json:"createdAt" api:"required" format:"date-time"`
-	FunctionID     string                                      `json:"functionId" api:"required" format:"uuid"`
-	InputSchema    map[string]any                              `json:"inputSchema" api:"required"`
-	InspectError   ServerlessFunctionLatestVersionInspectError `json:"inspectError" api:"required"`
-	Manifest       ServerlessFunctionLatestVersionManifest     `json:"manifest" api:"required"`
-	OutputKind     string                                      `json:"outputKind" api:"required"`
-	OutputSchema   map[string]any                              `json:"outputSchema" api:"required"`
-	RuntimeVersion string                                      `json:"runtimeVersion" api:"required"`
-	Sha256         string                                      `json:"sha256" api:"required"`
-	SizeBytes      int64                                       `json:"sizeBytes" api:"required"`
+type FunctionVersion struct {
+	APIKey         FunctionVersionAPIKeyUnion  `json:"apiKey" api:"required"`
+	CreatedAt      time.Time                   `json:"createdAt" api:"required" format:"date-time"`
+	FunctionID     string                      `json:"functionId" api:"required" format:"uuid"`
+	InputSchema    map[string]any              `json:"inputSchema" api:"required"`
+	InspectError   FunctionVersionInspectError `json:"inspectError" api:"required"`
+	Manifest       FunctionManifest            `json:"manifest" api:"required"`
+	OutputKind     string                      `json:"outputKind" api:"required"`
+	OutputSchema   map[string]any              `json:"outputSchema" api:"required"`
+	RuntimeVersion string                      `json:"runtimeVersion" api:"required"`
+	Sha256         string                      `json:"sha256" api:"required"`
+	SizeBytes      int64                       `json:"sizeBytes" api:"required"`
 	// Any of "pending_inspection", "ready", "rejected".
-	Status  string `json:"status" api:"required"`
-	Version int64  `json:"version" api:"required"`
+	Status  FunctionVersionStatus `json:"status" api:"required"`
+	Version int64                 `json:"version" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		APIKey         respjson.Field
@@ -199,20 +246,19 @@ type ServerlessFunctionLatestVersion struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersion) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersion) UnmarshalJSON(data []byte) error {
+func (r FunctionVersion) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersion) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-// ServerlessFunctionLatestVersionAPIKeyUnion contains all possible properties and
-// values from [ServerlessFunctionLatestVersionAPIKeyPermissions],
-// [ServerlessFunctionLatestVersionAPIKeyFull].
+// FunctionVersionAPIKeyUnion contains all possible properties and values from
+// [FunctionVersionAPIKeyPermissions], [FunctionVersionAPIKeyFull].
 //
 // Use the methods beginning with 'As' to cast the union to one of its variants.
-type ServerlessFunctionLatestVersionAPIKeyUnion struct {
-	// This field is from variant [ServerlessFunctionLatestVersionAPIKeyPermissions].
+type FunctionVersionAPIKeyUnion struct {
+	// This field is from variant [FunctionVersionAPIKeyPermissions].
 	Permissions map[string][]string `json:"permissions"`
-	// This field is from variant [ServerlessFunctionLatestVersionAPIKeyFull].
+	// This field is from variant [FunctionVersionAPIKeyFull].
 	Full bool `json:"full"`
 	JSON struct {
 		Permissions respjson.Field
@@ -221,24 +267,24 @@ type ServerlessFunctionLatestVersionAPIKeyUnion struct {
 	} `json:"-"`
 }
 
-func (u ServerlessFunctionLatestVersionAPIKeyUnion) AsServerlessFunctionLatestVersionAPIKeyPermissions() (v ServerlessFunctionLatestVersionAPIKeyPermissions) {
+func (u FunctionVersionAPIKeyUnion) AsFunctionVersionAPIKeyPermissions() (v FunctionVersionAPIKeyPermissions) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
 
-func (u ServerlessFunctionLatestVersionAPIKeyUnion) AsServerlessFunctionLatestVersionAPIKeyFull() (v ServerlessFunctionLatestVersionAPIKeyFull) {
+func (u FunctionVersionAPIKeyUnion) AsFunctionVersionAPIKeyFull() (v FunctionVersionAPIKeyFull) {
 	apijson.UnmarshalRoot(json.RawMessage(u.JSON.raw), &v)
 	return
 }
 
 // Returns the unmodified JSON received from the API
-func (u ServerlessFunctionLatestVersionAPIKeyUnion) RawJSON() string { return u.JSON.raw }
+func (u FunctionVersionAPIKeyUnion) RawJSON() string { return u.JSON.raw }
 
-func (r *ServerlessFunctionLatestVersionAPIKeyUnion) UnmarshalJSON(data []byte) error {
+func (r *FunctionVersionAPIKeyUnion) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionAPIKeyPermissions struct {
+type FunctionVersionAPIKeyPermissions struct {
 	Permissions map[string][]string `json:"permissions" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
@@ -249,12 +295,12 @@ type ServerlessFunctionLatestVersionAPIKeyPermissions struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionAPIKeyPermissions) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionAPIKeyPermissions) UnmarshalJSON(data []byte) error {
+func (r FunctionVersionAPIKeyPermissions) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersionAPIKeyPermissions) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionAPIKeyFull struct {
+type FunctionVersionAPIKeyFull struct {
 	// Any of true.
 	Full bool `json:"full" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -266,15 +312,15 @@ type ServerlessFunctionLatestVersionAPIKeyFull struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionAPIKeyFull) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionAPIKeyFull) UnmarshalJSON(data []byte) error {
+func (r FunctionVersionAPIKeyFull) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersionAPIKeyFull) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionInspectError struct {
-	Code    string                                             `json:"code" api:"required"`
-	Message string                                             `json:"message" api:"required"`
-	Errors  []ServerlessFunctionLatestVersionInspectErrorError `json:"errors"`
+type FunctionVersionInspectError struct {
+	Code    string                             `json:"code" api:"required"`
+	Message string                             `json:"message" api:"required"`
+	Errors  []FunctionVersionInspectErrorError `json:"errors"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Code        respjson.Field
@@ -286,16 +332,16 @@ type ServerlessFunctionLatestVersionInspectError struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionInspectError) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionInspectError) UnmarshalJSON(data []byte) error {
+func (r FunctionVersionInspectError) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersionInspectError) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionInspectErrorError struct {
-	Code    string                                                 `json:"code" api:"required"`
-	Message string                                                 `json:"message" api:"required"`
-	Line    int64                                                  `json:"line"`
-	Repair  ServerlessFunctionLatestVersionInspectErrorErrorRepair `json:"repair"`
+type FunctionVersionInspectErrorError struct {
+	Code    string                                 `json:"code" api:"required"`
+	Message string                                 `json:"message" api:"required"`
+	Line    int64                                  `json:"line"`
+	Repair  FunctionVersionInspectErrorErrorRepair `json:"repair"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
 		Code        respjson.Field
@@ -308,12 +354,12 @@ type ServerlessFunctionLatestVersionInspectErrorError struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionInspectErrorError) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionInspectErrorError) UnmarshalJSON(data []byte) error {
+func (r FunctionVersionInspectErrorError) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersionInspectErrorError) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionInspectErrorErrorRepair struct {
+type FunctionVersionInspectErrorErrorRepair struct {
 	Action string `json:"action" api:"required"`
 	Hint   string `json:"hint" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
@@ -326,46 +372,46 @@ type ServerlessFunctionLatestVersionInspectErrorErrorRepair struct {
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionInspectErrorErrorRepair) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionInspectErrorErrorRepair) UnmarshalJSON(data []byte) error {
+func (r FunctionVersionInspectErrorErrorRepair) RawJSON() string { return r.JSON.raw }
+func (r *FunctionVersionInspectErrorErrorRepair) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
-type ServerlessFunctionLatestVersionManifest struct {
-	Credentials []ServerlessFunctionLatestVersionManifestCredential `json:"credentials"`
-	Hosts       []string                                            `json:"hosts"`
-	Scopes      []string                                            `json:"scopes"`
+type FunctionVersionStatus string
+
+const (
+	FunctionVersionStatusPendingInspection FunctionVersionStatus = "pending_inspection"
+	FunctionVersionStatusReady             FunctionVersionStatus = "ready"
+	FunctionVersionStatusRejected          FunctionVersionStatus = "rejected"
+)
+
+type ServerlessFunction struct {
+	ID                 string          `json:"id" api:"required" format:"uuid"`
+	CreatedAt          time.Time       `json:"createdAt" api:"required" format:"date-time"`
+	Description        string          `json:"description" api:"required"`
+	LatestReadyVersion int64           `json:"latestReadyVersion" api:"required"`
+	LatestVersion      FunctionVersion `json:"latestVersion" api:"required"`
+	Name               string          `json:"name" api:"required"`
+	UpdatedAt          time.Time       `json:"updatedAt" api:"required" format:"date-time"`
+	VersionCount       int64           `json:"versionCount" api:"required"`
 	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
 	JSON struct {
-		Credentials respjson.Field
-		Hosts       respjson.Field
-		Scopes      respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
+		ID                 respjson.Field
+		CreatedAt          respjson.Field
+		Description        respjson.Field
+		LatestReadyVersion respjson.Field
+		LatestVersion      respjson.Field
+		Name               respjson.Field
+		UpdatedAt          respjson.Field
+		VersionCount       respjson.Field
+		ExtraFields        map[string]respjson.Field
+		raw                string
 	} `json:"-"`
 }
 
 // Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionManifest) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionManifest) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-type ServerlessFunctionLatestVersionManifestCredential struct {
-	Name        string `json:"name" api:"required"`
-	PackageName string `json:"packageName" api:"required"`
-	// JSON contains metadata for fields, check presence with [respjson.Field.Valid].
-	JSON struct {
-		Name        respjson.Field
-		PackageName respjson.Field
-		ExtraFields map[string]respjson.Field
-		raw         string
-	} `json:"-"`
-}
-
-// Returns the unmodified JSON received from the API
-func (r ServerlessFunctionLatestVersionManifestCredential) RawJSON() string { return r.JSON.raw }
-func (r *ServerlessFunctionLatestVersionManifestCredential) UnmarshalJSON(data []byte) error {
+func (r ServerlessFunction) RawJSON() string { return r.JSON.raw }
+func (r *ServerlessFunction) UnmarshalJSON(data []byte) error {
 	return apijson.UnmarshalRoot(data, r)
 }
 
@@ -472,7 +518,7 @@ type ComputeFunctionNewParams struct {
 	Source      string                              `json:"source" api:"required"`
 	Description param.Opt[string]                   `json:"description,omitzero"`
 	APIKey      ComputeFunctionNewParamsAPIKeyUnion `json:"apiKey,omitzero"`
-	Manifest    ComputeFunctionNewParamsManifest    `json:"manifest,omitzero"`
+	Manifest    FunctionManifestParam               `json:"manifest,omitzero"`
 	paramObj
 }
 
@@ -533,36 +579,6 @@ func init() {
 	apijson.RegisterFieldValidator[ComputeFunctionNewParamsAPIKeyFull](
 		"full", true,
 	)
-}
-
-type ComputeFunctionNewParamsManifest struct {
-	Credentials []ComputeFunctionNewParamsManifestCredential `json:"credentials,omitzero"`
-	Hosts       []string                                     `json:"hosts,omitzero"`
-	Scopes      []string                                     `json:"scopes,omitzero"`
-	paramObj
-}
-
-func (r ComputeFunctionNewParamsManifest) MarshalJSON() (data []byte, err error) {
-	type shadow ComputeFunctionNewParamsManifest
-	return param.MarshalObject(r, (*shadow)(&r))
-}
-func (r *ComputeFunctionNewParamsManifest) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
-}
-
-// The properties Name, PackageName are required.
-type ComputeFunctionNewParamsManifestCredential struct {
-	Name        string `json:"name" api:"required"`
-	PackageName string `json:"packageName" api:"required"`
-	paramObj
-}
-
-func (r ComputeFunctionNewParamsManifestCredential) MarshalJSON() (data []byte, err error) {
-	type shadow ComputeFunctionNewParamsManifestCredential
-	return param.MarshalObject(r, (*shadow)(&r))
-}
-func (r *ComputeFunctionNewParamsManifestCredential) UnmarshalJSON(data []byte) error {
-	return apijson.UnmarshalRoot(data, r)
 }
 
 type ComputeFunctionUpdateParams struct {
